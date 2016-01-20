@@ -1,0 +1,96 @@
+heat_template_version: 2015-10-15
+description: >
+  A simple Heat template that spins up an instance in multiple networks (YAML)
+
+parameters:
+  outside_network:
+    type: string
+    label: Network name or ID
+    description: Outside (provider) network for ASA
+    default: RPC_NETDEV
+
+resources:
+  ASA-SW-CONFIG:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            hostname ASA1
+            interface management0/0
+            nameif management
+            security-level 0
+            ip address dhcp setroute
+            int g0/0
+            nameif OUTSIDE
+            security-level 0
+            ip address _OUTSIDEADDR_ _OUTSIDEMASK_
+            int g0/1
+            nameif INSIDE
+            security-level 100
+            ip address _INSIDEADDR_ _INSIDEMASK_
+            http server enable
+            http 10.0.0.0 255.0.0.0 management
+            crypto key generate rsa modulus 2048
+            username admin password openstack priv 15
+            ssh 10.0.0.0 255.0.0.0 management
+            aaa authentication ssh console LOCAL
+          params:
+            _OUTSIDEADDR_: { get_attr: [instance0_port1, fixed_ips, 0, ip_address] }
+            _OUTSIDEMASK_: 255.255.255.192
+            _INSIDEADDR_: { get_attr: [instance0_port2, fixed_ips, 0, ip_address] }
+            _INSIDEMASK_: 255.255.255.0
+
+  heat_inside_network:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: heat-inside-network
+
+  heat_inside_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: heat-inside-subnet
+      cidr: 10.10.10.0/24
+      dns_nameservers: [8.8.8.8, 8.8.4.4]
+      enable_dhcp: true
+      gateway_ip: 10.10.10.1
+      network_id: { get_resource: heat_inside_network }
+
+  instance0_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: e0be3064-2011-4d92-b73c-5c4c6825b0c1
+      security_groups:
+        - 0875fe40-c509-44bf-ac68-e9a4795a64c6
+
+  instance0_port1:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_param: outside_network }
+      security_groups:
+        - 0875fe40-c509-44bf-ac68-e9a4795a64c6
+
+  instance0_port2:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: heat_inside_network }
+      fixed_ips:
+        - ip_address: 10.10.10.1
+      security_groups:
+        - 0875fe40-c509-44bf-ac68-e9a4795a64c6
+
+  instance0:
+    type: OS::Nova::Server
+    properties:
+      image: 1499479f-80d9-4f39-9129-eec7b6c8d976
+      flavor: ASAv10
+      config_drive: true
+      personality: { "day0": { get_attr: [ASA-SW-CONFIG, config] }}
+      networks:
+        - port: { get_resource: instance0_port0 }
+        - port: { get_resource: instance0_port1 }
+        - port: { get_resource: instance0_port2 }
