@@ -30,11 +30,14 @@ def create_subnet(network_id,cidr):
     response = neutron.create_subnet(body=body_value)
     return response["subnet"]["id"]
 
-def add_address_pair(port_id,ip_address):
+def add_address_pair(port_id,ip_address,mac_address=None):
     
-    print port_id,ip_address
+    print port_id,ip_address,mac_address
 
-    entry = {'ip_address':ip_address}
+    if mac_address is None:
+        mac_address = get_macaddr_from_port(port_id)
+
+    entry = {'ip_address':ip_address,'mac_address':mac_address}
     port_details = neutron.show_port(port_id)
     address_pairs = port_details["port"]["allowed_address_pairs"]
 
@@ -70,6 +73,12 @@ def get_fixedip_from_port(port_id):
     fixed_ip = port_details["port"]["fixed_ips"][0]["ip_address"]
 
     return fixed_ip
+
+def get_macaddr_from_port(port_id):
+    port_details = neutron.show_port(port_id)
+    mac_addr = port_details["port"]["mac_address"]
+
+    return mac_addr
 
 def get_gateway_from_port(port_id):
 

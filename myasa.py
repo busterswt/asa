@@ -2,7 +2,7 @@ import requests, json, sys
 from pprint import pprint
 #from neutronclient.v2_0 import client
 #from prettytable import PrettyTable
-from library.neutron import create_port,create_network,get_fixedip_from_port,add_address_pair
+from library.neutron import create_port,create_network,get_fixedip_from_port,add_address_pair,get_macaddr_from_port
 from library.neutron import get_gateway_from_port,get_netmask_from_subnet,create_subnet
 from library.config import generate_base_config,generate_failover_config
 from library.nova import boot_server,random_server_name
@@ -29,12 +29,14 @@ def main(hostname,management_network):
     _base_info['mgmt_primary_port'] = create_port(management_network,hostname+"_MGMT")
     _base_info['mgmt_secondary_port'] = create_port(management_network,hostname+"_MGMT")
     _base_info['mgmt_primary_address'] = get_fixedip_from_port(_base_info['mgmt_primary_port'])
+    _base_info['mgmt_primary_mac'] = get_macaddr_from_port(_base_info['mgmt_primary_port'])
     _base_info['mgmt_secondary_address'] = get_fixedip_from_port(_base_info['mgmt_secondary_port'])
+    _base_info['mgmt_secondary_mac'] = get_macaddr_from_port(_base_info['mgmt_secondary_port'])
     _base_info['management_gateway'],_base_info['management_mask'], = get_gateway_from_port(_base_info['mgmt_primary_port'])
 
     # Add the respective address to the other port
-    add_address_pair(_base_info['mgmt_primary_port'],_base_info['mgmt_secondary_address'])
-    add_address_pair(_base_info['mgmt_secondary_port'],_base_info['mgmt_primary_address'])
+    add_address_pair(_base_info['mgmt_primary_port'],_base_info['mgmt_secondary_address'],_base_info['mgmt_secondary_mac'])
+    add_address_pair(_base_info['mgmt_secondary_port'],_base_info['mgmt_primary_address'],_base_info['mgmt_primary_mac'])
 
     #
     # Create failover network
