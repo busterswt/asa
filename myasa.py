@@ -75,12 +75,15 @@ def generate_config(hostname,tenant_name,user_name,management_network):
     # Add the respective address to the other port
     neutronlib.add_address_pair(_base_info['outside_primary_port'],_base_info['outside_secondary_address'],_base_info['outside_secondary_mac'])
     neutronlib.add_address_pair(_base_info['outside_secondary_port'],_base_info['outside_primary_address'],_base_info['outside_primary_mac'])
+    # Add all external traffic to be routed out
+    neutronlib.add_address_pair(_base_info['outside_primary_port'],"0.0.0.0/0")
+    neutronlib.add_address_pair(_base_info['outside_secondary_port'],"0.0.0.0/0")
 
     # INSIDE INTERFACE
     _inside_info = {}
     inside_network = neutronlib.create_network("INSIDE",network_type="vlan")
     inside_segmentation_id = inside_network["network"]["provider:segmentation_id"]
-    print inside_segmentation_id
+#    print inside_segmentation_id
     inside_cidr = "192.168.%s.0/24" % inside_segmentation_id
     _inside_info['inside_net_addr'] = "192.168.%s.0" % inside_segmentation_id
     _inside_info['inside_subnet'] = neutronlib.create_subnet(inside_network["network"]["id"],inside_cidr)
@@ -95,9 +98,12 @@ def generate_config(hostname,tenant_name,user_name,management_network):
     # Add the respective address to the other port
     neutronlib.add_address_pair(_inside_info['inside_primary_port'],_inside_info['inside_secondary_address'],_inside_info['inside_secondary_mac'])
     neutronlib.add_address_pair(_inside_info['inside_secondary_port'],_inside_info['inside_primary_address'],_inside_info['inside_primary_mac'])
+    # Add all external traffic to be routed in
+    neutronlib.add_address_pair(_inside_info['inside_primary_port'],"0.0.0.0/0")
+    neutronlib.add_address_pair(_inside_info['inside_secondary_port'],"0.0.0.0/0")
 
     #debug
-    print pprint(_inside_info)
+#    print pprint(_inside_info)
 
     _vpn_info = {}
     _vpn_info['tunnel_group'] = tenant_name
