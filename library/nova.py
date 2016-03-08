@@ -1,5 +1,5 @@
 from clients import nova
-import random
+import random, time
 
 def random_server_name():
     verbs = ('Squashed','Squeaming','Bouncing','Unkept','Disgusting','Whopping','Joking', 'Running', 'Walking', 'Jumping', 'Bumping', 'Rolling')
@@ -11,19 +11,28 @@ def random_server_name():
 def boot_server(hostname,ports,file_contents,az=None):
     file_path = "day0"
 
-#    server_ports = [{'port-id':ports['mgmt'],'port-id':ports['failover']}]
-
-    print ports
+#    print ports
 
     server = nova.servers.create(name=hostname,
                     image="2e86a35d-ee9f-4dcb-981b-a9d3b25a3fc8",
                     flavor="23252bd3-dd93-47cf-a8c1-e70eef6827e3",
                     availability_zone=az,
-                    nics=[{'port-id':ports['mgmt']},{'port-id':ports['failover']},{'port-id':ports['outside']}],
-#                    nics=[{'port-id':ports['mgmt']}],
+                    nics=[{'port-id':ports['mgmt']},{'port-id':ports['failover']},{'port-id':ports['outside']},{'port-id':ports['inside']}],
                     config_drive="True",
                     files={"path":file_path,"contents":file_contents}
 #                    files={"path":"day0","contents":"hostname ASA1"}
                )
 
     return server
+
+def check_status(server_id):
+    
+    # Returns the status of the instance. Delayed (usually) by busy API.
+    server = nova.servers.get(server_id)
+    return server.status
+
+def get_console(server):
+
+    # Returns VNC URL
+    vnc = server.get_vnc_console("novnc")
+    return vnc['console']['url']

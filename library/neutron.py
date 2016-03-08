@@ -3,17 +3,19 @@ import requests, json, sys
 #from credentials import get_credentials
 from clients import neutron
 
-def create_network(name,network_type):
+def create_network(name,network_type="vxlan"):
     
     body_value = {
         "network": {
             "name": name,
-            "admin_state_up": True
+            "admin_state_up": True,
+            "provider:network_type": network_type
         }
     }
 
-    response = neutron.create_network(body=body_value)
-    return response["network"]["id"]
+#    response = neutron.create_network(body=body_value)
+#    return response["network"]["id"]
+    return neutron.create_network(body=body_value)
 
 def create_subnet(network_id,cidr):
 
@@ -32,7 +34,7 @@ def create_subnet(network_id,cidr):
 
 def add_address_pair(port_id,ip_address,mac_address=None):
     
-    print port_id,ip_address,mac_address
+#    print port_id,ip_address,mac_address
 
     if mac_address is None:
         mac_address = get_macaddr_from_port(port_id)
