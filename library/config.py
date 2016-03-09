@@ -492,6 +492,7 @@ def generate_base_config(data):
         username {vpn_user} password {vpn_password}
 
         ! Enable VPN
+        crypto isakmp nat-traversal 20
         crypto ikev1 enable OUTSIDE 
         crypto map VPNMAP interface OUTSIDE
 
