@@ -1,5 +1,0 @@
-hostname ASA2
-interface management0/0
-nameif management
-security-level 0
-ip address dhcp setroute
