@@ -1,28 +1,163 @@
 import textwrap
 
-def generate_base_config(data):
-    base_config = '''
-        ! Begin template
-        hostname {hostname}
-        domain-name IAD3.RACKSPACE.COM
-        no http server enable
-        prompt hostname pri state
-        crypto key generate rsa general-keys modulus 1024 noconfirm
-        
-        ! Begin interface configuration. 
+def generate_config(ha,data):
+    # Generate the base configuration
+    config = generate_base_config(data)
+
+    # Generate the interface configuration
+    if ha:
+	config += generate_ha_interface_config(data)
+    else:
+	config += generate_standalone_interface_config(data)
+
+    # Generate more configuration
+    config += generate_access_config(data)
+    config += generate_logging_config()
+    config += generate_ntp_config()
+    config += generate_security_config()
+    config += generate_vpn_config(data)
+
+    # Gerate failover configuration (if ha)
+    if ha:
+	config += generate_failover_config(data)
+
+    return config
+
+def generate_standalone_interface_config(data):
+    standalone_config = '''
+        ! Begin interface configuration.
         ! Interface m0/0 is management (first attached interface)
         interface management0/0
         nameif management
         security-level 10
-        ip address {mgmt_primary_address} {management_mask} standby {mgmt_secondary_address}
+        ip address {fw_mgmt_primary_address} {fw_mgmt_mask}
         no shut
-        route management 0.0.0.0 0.0.0.0 {management_gateway}
-        
+        route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
+
+        ! Interface g0/0 must be OUTSIDE (second attached interface)
+        interface GigabitEthernet0/0
+        no shut
+        nameif OUTSIDE
+        security-level 0
+        ip address {fw_outside_primary_address} {fw_outside_mask}
+        route outside 0.0.0.0 0.0.0.0 {fw_outside_gateway}
+        ! Disable proxy ARP ticket 140923-08822
+        sysopt noproxyarp OUTSIDE
+        ip verify reverse-path interface OUTSIDE
+        access-group 101 in interface OUTSIDE
+
+        ! Interface g0/1 must be INSIDE (fourth attached interface)
+        interface GigabitEthernet0/1
+        no shut
+        nameif INSIDE
+        security-level 100
+        ip address {fw_inside_primary_address} {fw_inside_netmask}
+        ! Disable proxy ARP ticket 140923-08822
+        sysopt noproxyarp INSIDE
+        ip verify reverse-path interface INSIDE
+        access-group 100 in interface INSIDE
+          '''.format(**data)
+
+    return textwrap.dedent(standalone_config)
+
+def generate_ha_interface_config(data):
+    ha_config = '''
+        ! Begin interface configuration.
+        ! Interface m0/0 is management (first attached interface)
+        interface management0/0
+        nameif management
+        security-level 10
+        ip address {fw_mgmt_primary_address} {fw_mgmt_mask} standby {fw_mgmt_secondary_address}
+        no shut
+        route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
+
         ! Interface g0/0 must be failover (second attached interface)
         interface GigabitEthernet0/0
         no shut
-        
-        ! Default ACL Configuration
+
+        ! Interface g0/1 must be OUTSIDE (third attached interface)
+        interface GigabitEthernet0/1
+        no shut
+        nameif OUTSIDE
+        security-level 0
+        ip address {fw_outside_primary_address} {fw_outside_mask} standby {fw_outside_secondary_address}
+        route outside 0.0.0.0 0.0.0.0 {fw_outside_gateway}
+        ! Disable proxy ARP ticket 140923-08822
+        sysopt noproxyarp OUTSIDE
+        ip verify reverse-path interface OUTSIDE
+        access-group 101 in interface OUTSIDE
+
+        ! Interface g0/2 must be INSIDE (fourth attached interface)
+        interface GigabitEthernet0/2
+        no shut
+        nameif INSIDE
+        security-level 100
+        ip address {fw_inside_primary_address} {fw_inside_netmask} standby {fw_inside_secondary_address}
+        ! Disable proxy ARP ticket 140923-08822
+        sysopt noproxyarp INSIDE
+        ip verify reverse-path interface INSIDE
+        access-group 100 in interface INSIDE
+          '''.format(**data)
+
+    return textwrap.dedent(ha_config)
+
+def generate_base_config(data):
+    base_config = '''
+        ! Begin template
+        hostname {fw_hostname}
+        domain-name IAD3.RACKSPACE.COM
+        no http server enable
+        prompt hostname pri state
+        crypto key generate rsa general-keys modulus 1024 noconfirm
+
+        ! Inspections
+        no threat-detection basic-threat
+        no threat-detection statistics access-list
+        no call-home reporting anonymous
+
+        class-map inspection_default
+        match default-inspection-traffic
+
+        policy-map type inspect dns preset_dns_map
+        parameters
+        message-length maximum 512
+        message-length maximum client auto
+        message-length maximum server auto
+
+        policy-map global_policy
+        class inspection_default
+        inspect icmp
+        inspect dns preset_dns_map
+        inspect ftp
+        inspect h323 h225
+        inspect h323 ras
+        inspect rsh
+        inspect skinny
+        inspect xdmcp
+        inspect sip
+        inspect netbios
+        inspect tftp
+        inspect esmtp
+        no inspect esmtp
+        inspect rtsp
+        no inspect rtsp
+        inspect sqlnet
+        no inspect sqlnet
+        inspect sunrpc
+        no inspect sunrpc
+
+        service-policy global_policy global        
+
+        ! User configuration
+        username jdenton password ppc$7400 privilege 15
+          '''.format(**data)
+
+    return textwrap.dedent(base_config)
+
+def generate_access_config(data):
+    access_config = '''
+
+	! ACL Configuration
         object-group icmp-type ICMP-ALLOWED
         description "These are the ICMP types Rackspace allows by default"
         icmp-object echo-reply
@@ -243,32 +378,14 @@ def generate_base_config(data):
         
         access-list 100 permit ip any any
         
-        ! Interface g0/1 must be OUTSIDE (third attached interface)
-        interface GigabitEthernet0/1
-        no shut
-        nameif OUTSIDE
-        security-level 0
-        ip address {outside_primary_address} {outside_mask} standby {outside_secondary_address}
-        route outside 0.0.0.0 0.0.0.0 {outside_gateway}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp OUTSIDE
-        ip verify reverse-path interface OUTSIDE
-        access-group 101 in interface OUTSIDE
-        
-        ! Interface g0/2 must be INSIDE (fourth attached interface)
-       	interface GigabitEthernet0/2
-        no shut
-       	nameif INSIDE
-        security-level 100
-        ip address {inside_primary_address} {inside_netmask} standby {inside_secondary_address}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp INSIDE
-        ip verify reverse-path interface INSIDE
-        access-group 100 in interface INSIDE
-        
         object network obj-INSIDE-NETWORK
-        subnet {inside_net_addr} {inside_netmask}
+        subnet {fw_inside_net_addr} {fw_inside_netmask}
+          '''.format(**data)
 
+    return textwrap.dedent(access_config)
+
+def generate_logging_config():
+    logging_config = '''
         ! Logging
         logging enable
         logging timestamp
@@ -282,7 +399,12 @@ def generate_base_config(data):
         no logging message 769004
         ! Prevent TCP syslog from taking down box
         logging permit-hostdown
-        
+          '''
+
+    return textwrap.dedent(logging_config)
+
+def generate_ntp_config():
+    ntp_config = '''
         ! Clock Settings
         clock timezone CST -6
         clock summer-time CDT recurring
@@ -293,45 +415,12 @@ def generate_base_config(data):
         ntp server 120.136.32.62 source OUTSIDE
         ntp server 119.9.60.62 source OUTSIDE
         ntp server 69.20.0.164 source OUTSIDE prefer
-        
-        ! Inspections
-        no threat-detection basic-threat
-        no threat-detection statistics access-list
-        no call-home reporting anonymous
-        
-        class-map inspection_default
-        match default-inspection-traffic
-        
-        policy-map type inspect dns preset_dns_map
-        parameters
-        message-length maximum 512
-        message-length maximum client auto
-        message-length maximum server auto
-        
-        policy-map global_policy
-        class inspection_default
-        inspect icmp
-        inspect dns preset_dns_map
-        inspect ftp
-        inspect h323 h225
-        inspect h323 ras
-        inspect rsh
-        inspect skinny
-        inspect xdmcp
-        inspect sip
-        inspect netbios
-        inspect tftp
-        inspect esmtp
-        no inspect esmtp
-        inspect rtsp
-        no inspect rtsp
-        inspect sqlnet
-        no inspect sqlnet
-        inspect sunrpc
-        no inspect sunrpc
-        
-        service-policy global_policy global
+          '''
 
+    return textwrap.dedent(ntp_config)
+
+def generate_security_config():
+    security_config = '''
         ! Timeout values
         console timeout 5
         ssh timeout 15
@@ -400,7 +489,12 @@ def generate_base_config(data):
         ! bastion[12].syd2.rackspace.com PAT address - 121220-07123
         ssh 119.9.63.53 255.255.255.255 OUTSIDE
         ssh timeout 15
-        
+          '''
+
+    return textwrap.dedent(security_config)
+
+def generate_vpn_config(data):        
+    vpn_config = '''
         ! VPN configuration
         crypto ipsec ikev1 transform-set AES256-SHA esp-aes-256 esp-sha-hmac
         crypto ipsec ikev1 transform-set AES256-MD5 esp-aes-256 esp-md5-hmac
@@ -459,9 +553,6 @@ def generate_base_config(data):
         crypto dynamic-map DYNMAP 65535 set ikev1 transform-set AES256-SHA AES256-MD5 AES256-SHA AES-MD5 3DES-SHA 3DES-MD5
         crypto map VPNMAP 65535 ipsec-isakmp dynamic DYNMAP    
         
-        ! User configuration
-        username newton password n3wt0n privilege 15
-        
         ! VPN Configuration
         ip local pool ippool 172.30.5.1-172.30.5.254 mask 255.255.255.0
 
@@ -502,25 +593,13 @@ def generate_base_config(data):
         aaa-server RACKACS (OUTSIDE) host 10.4.109.17 Ri7@4Zx8 timeout 2
         aaa-server RACKACS (OUTSIDE) host 10.4.109.25 Ri7@4Zx8 timeout 2     
         
-        aaa authentication enable console RACKACS LOCAL
-        aaa authentication ssh console RACKACS LOCAL
-        aaa authentication http console RACKACS LOCAL
-        !aaa authorization command RACKACS LOCAL
+        aaa authentication enable console LOCAL
+        aaa authentication ssh console LOCAL
+        aaa authentication http console LOCAL
         aaa authorization command LOCAL 
-  
-        ! Failover configuration
-        failover
-        failover lan unit {priority}
-        failover lan interface LANFAIL GigabitEthernet0/0
-        failover polltime unit 1 holdtime 5
-        failover key openstack
-        failover replication http
-        failover link LANFAIL GigabitEthernet0/0
-        failover interface ip LANFAIL {failover_primary_address} {failover_netmask} standby {failover_secondary_address}
+          '''.format(**data)
 
-        '''.format(**data)
-
-    return textwrap.dedent(base_config)
+    return textwrap.dedent(vpn_config)
 
 def generate_failover_config(data):
     failover_config = '''
@@ -531,7 +610,7 @@ def generate_failover_config(data):
         failover key openstack
         failover replication http
         failover link LANFAIL GigabitEthernet0/0
-        failover interface ip LANFAIL {failover_primary_address} {failover_netmask} standby {failover_secondary_address}
+        failover interface ip LANFAIL {fw_failover_primary_address} {fw_failover_netmask} standby {fw_failover_secondary_address}
         '''.format(**data)
 
     return textwrap.dedent(failover_config)

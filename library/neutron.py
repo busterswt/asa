@@ -54,14 +54,15 @@ def add_address_pair(port_id,ip_address,mac_address=None):
     response = neutron.update_port(port_id, req)    
 #    return response["port"]["allowed_address_pairs"]    
 
-def create_port(network_id,hostname):
+def create_port(network_id,hostname,port_security_enabled=False):
 
     port_name = hostname + "_" + network_id[:11]
     body_value = {
         "port": {
             "admin_state_up": True,
             "name": port_name,
-            "network_id": network_id
+            "network_id": network_id,
+	    "port_security_enabled": port_security_enabled
          }
     }
 

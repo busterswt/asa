@@ -8,20 +8,22 @@ def random_server_name():
     
     return name
 
-def boot_server(hostname,ports,file_contents,az=None):
-    file_path = "day0"
+def boot_server(hostname,image_id,flavor_id,ports,file_contents,az=None,file_path=None):
 
-#    print ports
+    # Convert ports to a list of dictionaries
+    nic_ports = []
+    for portname,portid in ports.iteritems():
+	nic_ports.append({'port-id':portid})
 
     server = nova.servers.create(name=hostname,
-                    image="2e86a35d-ee9f-4dcb-981b-a9d3b25a3fc8",
-                    flavor="23252bd3-dd93-47cf-a8c1-e70eef6827e3",
-                    availability_zone=az,
-                    nics=[{'port-id':ports['mgmt']},{'port-id':ports['failover']},{'port-id':ports['outside']},{'port-id':ports['inside']}],
-                    config_drive="True",
-                    files={"path":file_path,"contents":file_contents}
+	                         image=image_id,
+                    		 flavor=flavor_id,
+	                         availability_zone=az,
+             		         nics=nic_ports,
+ 	                         config_drive="True",
+ 	                         files={"path":file_path,"contents":file_contents}
 #                    files={"path":"day0","contents":"hostname ASA1"}
-               )
+             			  )
 
     return server
 
@@ -34,5 +36,8 @@ def check_status(server_id):
 def get_console(server):
 
     # Returns VNC URL
-    vnc = server.get_vnc_console("novnc")
+    # (todo) Return novnc or xvpvnc. Or catch the error. What about spice url?
+    # nova get-spice-console 5e8c309d-f279-493c-b051-f817ffe4b748 spice-html5
+#    vnc = server.get_vnc_console("xvpvnc")
+    vnc = server.get_spice_console("spice-html5")
     return vnc['console']['url']

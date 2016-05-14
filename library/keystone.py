@@ -14,12 +14,14 @@ def generate_random_account():
     range_end = (10**6)-1
     return random.randint(range_start, range_end)
 
-def create_tenant(account_number):
+def create_project(account_number):
     account_name = "Account_" + str(account_number)
-    new_tenant = keystone.tenants.create(tenant_name=account_name,
-                        description="Employees of Acme Corp.",
-                        enabled=True)
-    return new_tenant
+    new_project = keystone.projects.create(name=account_name,
+                        domain='Default',
+			description="Created by ASA script",
+                        enabled=True,
+			parent=None)
+    return new_project
 
 def create_user(account_number,tenant_id,password):
     user_name = "User_" + str(account_number)
