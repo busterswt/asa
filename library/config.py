@@ -1,4 +1,4 @@
-import textwrap
+import textwrap, json
 
 def generate_config(ha,data):
     # Generate the base configuration
@@ -614,3 +614,30 @@ def generate_failover_config(data):
         '''.format(**data)
 
     return textwrap.dedent(failover_config)
+
+def generate_f5_config(ha,_lb_configuration):
+    # (todo) implement base key injection
+    # (todo) implement ha configuration
+#    print _lb_configuration
+
+    # Generate the base configuration
+    config = {}
+    config['bigip'] = {}
+    config['bigip']['ssh_key_inject'] = 'false'
+    config['bigip']['change_password'] = 'false'
+    config['bigip']['admin_password'] = 'openstack'
+
+    # Configure network settings
+    config['bigip']['network'] = {}
+    config['bigip']['network']['dhcp'] = 'false'
+    config['bigip']['network']['interfaces'] = {}
+    config['bigip']['network']['interfaces']['1.1'] = {}
+    config['bigip']['network']['interfaces']['1.1']['dhcp'] = 'false'
+    config['bigip']['network']['interfaces']['1.1']['vlan_name'] = 'EXTERNAL'
+    config['bigip']['network']['interfaces']['1.1']['address'] = '1.2.1.1'
+    config['bigip']['network']['interfaces']['1.1']['netmask'] = '255.255.255.0'
+    config['bigip']['network']['routes'] = {}
+    config['bigip']['network']['routes']['0.0.0.0/0'] = '1.2.1.254'
+
+    json_config = json.dumps(config)
+    return json_config

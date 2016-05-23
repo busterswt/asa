@@ -14,6 +14,11 @@ def generate_random_account():
     range_end = (10**6)-1
     return random.randint(range_start, range_end)
 
+def generate_random_device():
+    range_start = 10**(6-1)
+    range_end = (10**6)-1
+    return random.randint(range_start, range_end)
+
 def create_project(account_number):
     account_name = "Account_" + str(account_number)
     new_project = keystone.projects.create(name=account_name,

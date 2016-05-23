@@ -8,7 +8,7 @@ def random_server_name():
     
     return name
 
-def boot_server(hostname,image_id,flavor_id,ports,file_contents,az=None,file_path=None):
+def boot_server(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
 
     # Convert ports to a list of dictionaries
     nic_ports = []
@@ -24,6 +24,24 @@ def boot_server(hostname,image_id,flavor_id,ports,file_contents,az=None,file_pat
  	                         files={"path":file_path,"contents":file_contents}
 #                    files={"path":"day0","contents":"hostname ASA1"}
              			  )
+
+    return server
+
+def boot_f5(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
+
+    # Convert ports to a list of dictionaries
+    nic_ports = []
+    for portname,portid in ports.iteritems():
+        nic_ports.append({'port-id':portid})
+
+    server = nova.servers.create(name=hostname,
+		image=image_id,
+		flavor=flavor_id,
+		availability_zone=az,
+		nics=nic_ports,
+		config_drive="True",
+		files={"path":file_path,"contents":file_contents}
+		)
 
     return server
 
