@@ -618,7 +618,7 @@ def generate_failover_config(data):
 def generate_f5_config(ha,_lb_configuration):
     # (todo) implement base key injection
     # (todo) implement ha configuration
-#    print _lb_configuration
+    print _lb_configuration
 
     # Generate the base configuration
     config = {}
@@ -634,8 +634,13 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['network']['interfaces']['1.1'] = {}
     config['bigip']['network']['interfaces']['1.1']['dhcp'] = 'false'
     config['bigip']['network']['interfaces']['1.1']['vlan_name'] = 'EXTERNAL'
-    config['bigip']['network']['interfaces']['1.1']['address'] = '1.2.1.1'
-    config['bigip']['network']['interfaces']['1.1']['netmask'] = '255.255.255.0'
+    config['bigip']['network']['interfaces']['1.1']['address'] = _lb_configuration['lb_outside_primary_address']
+    config['bigip']['network']['interfaces']['1.1']['netmask'] = _lb_configuration['lb_outside_mask']
+    config['bigip']['network']['interfaces']['1.2'] = {}
+    config['bigip']['network']['interfaces']['1.2']['dhcp'] = 'false'
+    config['bigip']['network']['interfaces']['1.2']['vlan_name'] = 'INTERNAL'
+    config['bigip']['network']['interfaces']['1.2']['address'] = _lb_configuration['lb_inside_primary_address']
+    config['bigip']['network']['interfaces']['1.2']['netmask'] = _lb_configuration['lb_inside_mask']
     config['bigip']['network']['routes'] = {}
     config['bigip']['network']['routes']['0.0.0.0/0'] = '1.2.1.254'
 

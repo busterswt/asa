@@ -17,7 +17,7 @@ def create_network(name,network_type="vxlan"):
 #    return response["network"]["id"]
     return neutron.create_network(body=body_value)
 
-def create_subnet(network_id,cidr):
+def create_subnet(network_id,cidr,gateway_ip=None):
 
     body_value = {
         "subnet": {
@@ -25,7 +25,7 @@ def create_subnet(network_id,cidr):
             "cidr": cidr,
             "ip_version": "4",
             "enable_dhcp": False,
-            "gateway_ip": None
+            "gateway_ip": gateway_ip
         }
     }
 

@@ -34,18 +34,21 @@ def create_fw_networks(hostname,ha,lb):
     if lb:
 	_networks['fw_inside_network_name'] = hostname + "-FW-LB"
 	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vxlan")
-	inside_cidr = "192.168.0.0/24" # (todo) Allow this to be set on CLI
-	_networks['fw_inside_net_addr'] = "192.168.0.0" # (todo) make this discoverable
-	_networks['fw_inside_mask'] = "255.255.255.0"
+	inside_cidr = "192.168.254.0/24" # (todo) Allow this to be set on CLI
+	_networks['fw_inside_net_addr'] = "192.168.254.0" # (todo) make this discoverable
+	_networks['fw_inside_mask'] = "255.255.255.240"
+	_networks['fw_inside_gateway'] = "192.168.254.1"
     else:
 	_networks['fw_inside_network_name'] = hostname + "-FW-INSIDE"
 	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vlan")	
-	inside_cidr = "192.168.254.0/28"
-        _networks['fw_inside_net_addr'] = "192.168.254.0" # (todo) make this discoverable
-        _networks['fw_inside_mask'] = "255.255.255.240"
+	inside_cidr = "192.168.100.0/28"
+        _networks['fw_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
+        _networks['fw_inside_mask'] = "255.255.255.0"
+	_networks['fw_inside_gateway'] = "192.168.100.1"
 
+    print _networks
     _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
-    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr)
+    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'])
 
 
     # Create FAILOVER network if highly-available
@@ -54,7 +57,7 @@ def create_fw_networks(hostname,ha,lb):
 	fw_failover_network = neutronlib.create_network(_networks['fw_failover_network_name'],network_type="vxlan")
 	_networks['fw_failover_network_id'] = fw_failover_network["network"]["id"]
 	failover_cidr = "192.168.255.0/28"
-	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(_networks['fw_failover_network_id'],failover_cidr)
+	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(_networks['fw_failover_network_id'],failover_cidr,None)
     else:
 	_networks['fw_failover_network_name'] = None
 	fw_failover_network = None # (todo) verify if this is necessary
@@ -70,9 +73,10 @@ def create_lb_networks(hostname,ha,_networks):
     inside_cidr = "192.168.100.0/24"
     _networks['lb_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
     _networks['lb_inside_mask'] = "255.255.255.0"
+    _networks['lb_inside_gateway'] = "192.168.100.1"
 
     _networks['lb_inside_network_id'] = lb_inside_network["network"]["id"]
-    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr)
+    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr,_networks['lb_inside_gateway'])
 
 
     # Create FAILOVER network if highly-available
@@ -81,7 +85,7 @@ def create_lb_networks(hostname,ha,_networks):
         lb_failover_network = neutronlib.create_network(_networks['lb_failover_network_name'],network_type="vxlan")
         _networks['lb_failover_network_id'] = lb_failover_network["network"]["id"]
         failover_cidr = "192.168.255.16/28"
-        _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(_networks['lb_failover_network_id'],failover_cidr)
+        _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(_networks['lb_failover_network_id'],failover_cidr,None)
     else:
         _networks['lb_failover_network_name'] = None
         lb_failover_network = None # (todo) verify if this is necessary
@@ -202,16 +206,17 @@ def launch_firewall(ha,_ports,_device_configuration):
     
     # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the ASA.
     if ha:
-	ports = {'mgmt':_ports['fw_mgmt_primary_port_id'],
-		'failover':_ports['fw_failover_primary_port_id'],
-		'outside':_ports['fw_outside_primary_port_id'],
-		'inside':_ports['fw_inside_primary_port_id']
-		}
+	ports = []
+	ports.append({'mgmt':_ports['fw_mgmt_primary_port_id']})
+	ports.append({'outside':_ports['fw_outside_primary_port_id']})
+	ports.append({'inside':_ports['fw_inside_primary_port_id']})
+	ports.append({'failover':_ports['fw_failover_primary_port_id']})
     else:
-	ports = {'mgmt':_ports['fw_mgmt_primary_port_id'],
-                'outside':_ports['fw_outside_primary_port_id'],
-                'inside':_ports['fw_inside_primary_port_id']
-                }
+	ports = []
+        ports.append({'mgmt':_ports['fw_mgmt_primary_port_id']})
+        ports.append({'outside':_ports['fw_outside_primary_port_id']})
+        ports.append({'inside':_ports['fw_inside_primary_port_id']})
+
     primary_fw = novalib.boot_server(hostname,image_id,flavor_id,ports,primary_config,az="ZONE-A",file_path="day0")
 
     # Check to see if VM state is ACTIVE.
@@ -230,11 +235,12 @@ def launch_firewall(ha,_ports,_device_configuration):
         print "Launching secondary firewall..."
         _device_configuration['priority'] = 'secondary'
         secondary_config = configlib.generate_config(ha,_device_configuration)
-        ports = {'mgmt':_ports['fw_mgmt_secondary_port_id'],
-		'failover':_ports['fw_failover_secondary_port_id'],
-		'outside':_ports['fw_outside_secondary_port_id'],
-		'inside':_ports['fw_inside_secondary_port_id']
-		}
+        ports = []
+        ports.append({'mgmt':_ports['fw_mgmt_secondary_port_id']})
+        ports.append({'outside':_ports['fw_outside_secondary_port_id']})
+        ports.append({'inside':_ports['fw_inside_secondary_port_id']})
+        ports.append({'failover':_ports['fw_failover_secondary_port_id']})
+
         secondary_fw = novalib.boot_server(hostname,image_id,flavor_id,ports,secondary_config,az="ZONE-B",file_path="day0") 
 
         # Check to see if VM state is ACTIVE.
@@ -284,22 +290,21 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
     print "Launching primary load balancer..."
     #_lb_configuration['priority'] = 'primary'
     primary_config = configlib.generate_f5_config(ha,_lb_configuration)
-    # JD delete
-    print primary_config
+
     # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the LB.
     if ha:
-        ports = {'mgmt':_ports['lb_mgmt_primary_port_id'],
-                'failover':_ports['lb_failover_primary_port_id'],
-                'outside':_ports['lb_outside_primary_port_id'],
-                'inside':_ports['lb_inside_primary_port_id']
-                }
+        ports = []
+	ports.append({'mgmt':_ports['lb_mgmt_primary_port_id']})
+        ports.append({'outside':_ports['lb_outside_primary_port_id']})
+        ports.append({'inside':_ports['lb_inside_primary_port_id']})
+	ports.append({'failover':_ports['lb_failover_primary_port_id']})
     else:
-        ports = {'mgmt':_ports['lb_mgmt_primary_port_id'],
-                'outside':_ports['lb_outside_primary_port_id'],
-                'inside':_ports['lb_inside_primary_port_id']
-                }
+	ports = []
+	ports.append({'mgmt':_ports['lb_mgmt_primary_port_id']})
+	ports.append({'outside':_ports['lb_outside_primary_port_id']})
+	ports.append({'inside':_ports['lb_inside_primary_port_id']})
 
-    primary_lb = novalib.boot_server(hostname,image_id,flavor_id,ports,primary_config,az="ZONE-A",file_path='/config/user_data.json')
+    primary_lb = novalib.boot_f5(hostname,image_id,flavor_id,ports,primary_config,az="ZONE-A")
     
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
@@ -317,12 +322,13 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
         print "Launching secondary load balancer..."
         #_device_configuration['priority'] = 'secondary'
         secondary_config = configlib.generate_f5_config(ha,_lb_configuration)
-        ports = {'mgmt':_ports['lb_mgmt_secondary_port_id'],
-                'failover':_ports['lb_failover_secondary_port_id'],
-                'outside':_ports['lb_outside_secondary_port_id'],
-                'inside':_ports['lb_inside_secondary_port_id']
-                }
-        secondary_lb = novalib.boot_server(hostname,image_id,flavor_id,ports,secondary_config,az="ZONE-B",file_path='/config/user_data.json')
+	ports = []
+        ports.append({'mgmt':_ports['lb_mgmt_secondary_port_id']})
+        ports.append({'outside':_ports['lb_outside_secondary_port_id']})
+        ports.append({'inside':_ports['lb_inside_secondary_port_id']})
+        ports.append({'failover':_ports['lb_failover_secondary_port_id']})
+
+        secondary_lb = novalib.boot_f5(hostname,image_id,flavor_id,ports,secondary_config,az="ZONE-B")
   
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -390,5 +396,3 @@ if __name__ == "__main__":
     if args.lb: # If user is spinning up load balancers, launch 'em behind the FW
         _lb_configuration = build_lb_configuration(hostname,args.ha)
         launch_loadbalancer(args.ha,_ports,_lb_configuration)
-
-    

@@ -12,27 +12,28 @@ def boot_server(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
 
     # Convert ports to a list of dictionaries
     nic_ports = []
-    for portname,portid in ports.iteritems():
-	nic_ports.append({'port-id':portid})
+    for port in ports:
+        for portname,portid in port.items():
+	    nic_ports.append({'port-id':portid})
 
     server = nova.servers.create(name=hostname,
-	                         image=image_id,
-                    		 flavor=flavor_id,
-	                         availability_zone=az,
-             		         nics=nic_ports,
- 	                         config_drive="True",
- 	                         files={"path":file_path,"contents":file_contents}
-#                    files={"path":"day0","contents":"hostname ASA1"}
-             			  )
+                image=image_id,
+                flavor=flavor_id,
+                availability_zone=az,
+                nics=nic_ports,
+                config_drive="True",
+                files={"path":file_path,"contents":file_contents}
+                )
 
     return server
 
-def boot_f5(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
+def boot_f5(hostname,image_id,flavor_id,ports,userdata,az):
 
     # Convert ports to a list of dictionaries
     nic_ports = []
-    for portname,portid in ports.iteritems():
-        nic_ports.append({'port-id':portid})
+    for port in ports:
+        for portname,portid in port.items():
+            nic_ports.append({'port-id':portid})
 
     server = nova.servers.create(name=hostname,
 		image=image_id,
@@ -40,7 +41,7 @@ def boot_f5(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
 		availability_zone=az,
 		nics=nic_ports,
 		config_drive="True",
-		files={"path":file_path,"contents":file_contents}
+		userdata=userdata
 		)
 
     return server
