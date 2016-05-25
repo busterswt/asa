@@ -488,6 +488,9 @@ def generate_security_config():
         ssh 120.136.34.44 255.255.255.255 OUTSIDE
         ! bastion[12].syd2.rackspace.com PAT address - 121220-07123
         ssh 119.9.63.53 255.255.255.255 OUTSIDE
+        ! Home Lab (REMOVE)
+        ssh 192.168.1.0 255.255.255.0 management
+        ssh 192.168.1.0 255.255.255.0 OUTSIDE
         ssh timeout 15
           '''
 
@@ -618,7 +621,6 @@ def generate_failover_config(data):
 def generate_f5_config(ha,_lb_configuration):
     # (todo) implement base key injection
     # (todo) implement ha configuration
-    print _lb_configuration
 
     # Generate the base configuration
     config = {}
@@ -626,6 +628,9 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['ssh_key_inject'] = 'false'
     config['bigip']['change_password'] = 'false'
     config['bigip']['admin_password'] = 'openstack'
+
+    # Generate banner
+    config['bigip']['system_cmds'] = 'tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"'
 
     # Configure network settings
     config['bigip']['network'] = {}
@@ -643,6 +648,13 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['network']['interfaces']['1.2']['netmask'] = _lb_configuration['lb_inside_mask']
     config['bigip']['network']['routes'] = {}
     config['bigip']['network']['routes']['0.0.0.0/0'] = '1.2.1.254'
+
+    if ha:
+	config['bigip']['network']['interfaces']['1.3'] = {}
+	config['bigip']['network']['interfaces']['1.3']['dhcp'] = 'false'
+	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
+	config['bigip']['network']['interfaces']['1.3']['address'] = _lb_configuration['lb_failover_primary_address']
+	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_mask']
 
     json_config = json.dumps(config)
     return json_config

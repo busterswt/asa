@@ -46,7 +46,6 @@ def create_fw_networks(hostname,ha,lb):
         _networks['fw_inside_mask'] = "255.255.255.0"
 	_networks['fw_inside_gateway'] = "192.168.100.1"
 
-    print _networks
     _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
     _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'])
 
