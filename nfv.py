@@ -360,7 +360,7 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nfv.py - NFV PoC that build virtual firewalls and load balancers')
 
-    flavor = parser.add_mutually_exclusive_group(required=False)
+#    flavor = parser.add_mutually_exclusive_group(required=False)
 #    flavor.add_argument('--small', dest='flavor', action='store', help='Builds a small device', required=False, default='4928fddd-8101-4c2e-a834-7fa22345092f')
 #    flavor.add_argument('--medium', dest='flavor', action='store', help='Builds a medium device', required=False, default='513d599f-0f31-451f-837b-6bb89f587c93')
 #    flavor.add_argument('--large', dest='flavor', action='store', help='Builds a large device', required=False, default='2c581a1c-b0ef-4f32-bb04-6b6b8da35a0a')
@@ -369,7 +369,7 @@ if __name__ == "__main__":
     parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network devices in a highly-available manner', required=False)
     parser.set_defaults(lb=False)
     parser.set_defaults(ha=False)
-    parser.set_defaults(flavor='4928fddd-8101-4c2e-a834-7fa22345092f')
+#    parser.set_defaults(flavor='4928fddd-8101-4c2e-a834-7fa22345092f')
 
     # Array for all arguments passed to script
     args = parser.parse_args()
