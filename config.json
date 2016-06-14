@@ -1,0 +1,28 @@
+{
+    "firewall": {
+        "asa": {
+            "image": "2e86a35d-ee9f-4dcb-981b-a9d3b25a3fc8",
+            "flavor": {
+                "small": "4043f5a8-8adb-48fe-9b14-168a09e20bcd",
+                "medium": "ec6f1328-cf25-4eae-a197-184d3746fcef",
+                "large": "4b734c1f-1a9c-47a9-a800-42e6d22780d4"
+            }
+         }
+    },
+    "loadbalancer": {
+        "f5": {
+       	    "image": "1234",
+       	    "flavor": {
+       	       	"large": "2e5aa369-0d5e-4615-a7d6-cd42cd7788dd"
+       	    }
+        },
+        "netscaler": {
+            "image": "0987",
+            "flavor": {
+                "small": "s3",
+                "medium": "m3",
+                "large": "l3"
+            }
+       	}
+    }
+}
