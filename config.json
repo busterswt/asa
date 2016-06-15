@@ -20,7 +20,7 @@
     "loadbalancer": {
         "ltm": {
        	    "image": "00c47e91-72cd-4d1f-aa7a-8b4fdf115db1",
-       	    "flavor": "3"
+       	    "flavor": "ebbd839d-54eb-4bd2-849b-1cbf0d13df2b"
         },
         "netscaler": {
             "image": "cb6818ab-5fe5-4ff7-bf45-3ed0995220c4",

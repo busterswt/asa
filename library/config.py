@@ -655,7 +655,7 @@ def generate_f5_config(ha,_lb_configuration):
 	config['bigip']['network']['interfaces']['1.3']['dhcp'] = 'false'
 	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
 	config['bigip']['network']['interfaces']['1.3']['address'] = _lb_configuration['lb_failover_primary_address']
-	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_mask']
+	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_netmask']
 
     json_config = json.dumps(config)
     return json_config
