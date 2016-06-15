@@ -6,9 +6,8 @@ import library.config as configlib
 import library.nova as novalib
 import library.keystone as keystonelib
 
-outside_network_id = '8c5726e0-9ee8-4bca-810d-78cffb2b281f'
-management_network_id = 'c9e8b39d-c8e2-43ed-817a-c1022a3aadc9'
-firewall_image_id = ''
+#outside_network_id = '8c5726e0-9ee8-4bca-810d-78cffb2b281f'
+#management_network_id = 'c9e8b39d-c8e2-43ed-817a-c1022a3aadc9'
 
 def create_project():
 
@@ -31,7 +30,7 @@ def create_fw_networks(hostname,ha,lb):
 
     _networks = {}
     # Create INSIDE (or transit) network
-    if lb:
+    if lb is not None:
 	_networks['fw_inside_network_name'] = hostname + "-FW-LB"
 	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vxlan")
 	inside_cidr = "192.168.254.0/24" # (todo) Allow this to be set on CLI
@@ -161,7 +160,7 @@ def build_lb_configuration(hostname,ha=False):
 
     return _device_configuration
 
-def build_fw_configuration(hostname,project_name,user_name,ha=False,lb=False):
+def build_fw_configuration(hostname,project_name,user_name,ha=False):
 
     # Build the configuration that will be pushed to the devices
     _device_configuration = {}
@@ -193,10 +192,7 @@ def build_fw_configuration(hostname,project_name,user_name,ha=False,lb=False):
 
     return _device_configuration
 
-def launch_firewall(ha,_ports,_device_configuration):
-
-    image_id = 'ec535aa8-d15d-4205-a821-6b8eae952559'
-    flavor_id = '4928fddd-8101-4c2e-a834-7fa22345092f'
+def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
 
     # Boot the primary ASA
     print "Launching primary firewall..."
@@ -216,7 +212,7 @@ def launch_firewall(ha,_ports,_device_configuration):
         ports.append({'outside':_ports['fw_outside_primary_port_id']})
         ports.append({'inside':_ports['fw_inside_primary_port_id']})
 
-    primary_fw = novalib.boot_server(hostname,image_id,flavor_id,ports,primary_config,az="ZONE-A",file_path="day0")
+    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az="ZONE-A",file_path="day0")
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary firewall %s to go ACTIVE..." % primary_fw.id
@@ -240,7 +236,7 @@ def launch_firewall(ha,_ports,_device_configuration):
         ports.append({'inside':_ports['fw_inside_secondary_port_id']})
         ports.append({'failover':_ports['fw_failover_secondary_port_id']})
 
-        secondary_fw = novalib.boot_server(hostname,image_id,flavor_id,ports,secondary_config,az="ZONE-B",file_path="day0") 
+        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az="ZONE-B",file_path="day0") 
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -280,10 +276,7 @@ def launch_firewall(ha,_ports,_device_configuration):
 	details.add_row(["Secondary Console:",novalib.get_console(secondary_fw)])
     print details
 
-def launch_loadbalancer(ha,_ports,_lb_configuration):
-
-    image_id = '131a4bb6-ad5a-4f36-9a38-436bd1c968dd'
-    flavor_id = '8203ba21-ede0-48a4-8877-8bbdec75163c'
+def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
 
     # Boot the primary load balancer
     print "Launching primary load balancer..."
@@ -303,7 +296,7 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
 	ports.append({'outside':_ports['lb_outside_primary_port_id']})
 	ports.append({'inside':_ports['lb_inside_primary_port_id']})
 
-    primary_lb = novalib.boot_f5(hostname,image_id,flavor_id,ports,primary_config,az="ZONE-A")
+    primary_lb = novalib.boot_f5(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
     
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
@@ -327,7 +320,7 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
         ports.append({'inside':_ports['lb_inside_secondary_port_id']})
         ports.append({'failover':_ports['lb_failover_secondary_port_id']})
 
-        secondary_lb = novalib.boot_f5(hostname,image_id,flavor_id,ports,secondary_config,az="ZONE-B")
+        secondary_lb = novalib.boot_f5(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
   
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -360,38 +353,52 @@ def launch_loadbalancer(ha,_ports,_lb_configuration):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nfv.py - NFV PoC that build virtual firewalls and load balancers')
 
-#    flavor = parser.add_mutually_exclusive_group(required=False)
-#    flavor.add_argument('--small', dest='flavor', action='store', help='Builds a small device', required=False, default='4928fddd-8101-4c2e-a834-7fa22345092f')
-#    flavor.add_argument('--medium', dest='flavor', action='store', help='Builds a medium device', required=False, default='513d599f-0f31-451f-837b-6bb89f587c93')
-#    flavor.add_argument('--large', dest='flavor', action='store', help='Builds a large device', required=False, default='2c581a1c-b0ef-4f32-bb04-6b6b8da35a0a')
-#    group.add_argument('--tenant-id', dest='tenant_id', type=str, help='Provides floating IPs related to provided tenant ID', required=False, default=None)
-    parser.add_argument('--lb', dest='lb', action='store_true', help='Builds a firewall and load balancer (routed mode)', required=False)
+    parser.add_argument('--fw', dest='fw', help='Specify firewall type', choices=['asav5', 'asav10', 'asav30'], required=True)
+    parser.add_argument('--lb', dest='lb', help='Specify load balancer type', choices=['ltm','netscaler'], required=False)
     parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network devices in a highly-available manner', required=False)
-    parser.set_defaults(lb=False)
     parser.set_defaults(ha=False)
-#    parser.set_defaults(flavor='4928fddd-8101-4c2e-a834-7fa22345092f')
+    parser.set_defaults(lb=None)
 
     # Array for all arguments passed to script
     args = parser.parse_args()
+
+    # Validate that there is an image and flavor for each specified option
+    # (todo) build validator
+
+    try:
+        with open('config.json') as config_file:    
+            config = json.load(config_file)
+        
+	outside_network_id = config['networks']['outside']
+	management_network_id = config['networks']['mgmt']
+
+        fw_image = config['firewall'][args.fw]['image']
+        fw_flavor = config['firewall'][args.fw]['flavor']
+
+	if args.lb is not None:
+	    lb_image = config['loadbalancer'][args.lb]['image']
+	    lb_flavor = config['loadbalancer'][args.lb]['flavor']
+    except Exception, e:
+        print "Error loading config file! %s" % e
+	sys.exit(1)
 
     # Launch the device(s)
     hostname = novalib.random_server_name()
     keystone_project,keystone_user = create_project()
 
-    # Create networks and ports
+    # Create networks
     _networks = create_fw_networks(hostname,args.ha,args.lb)
-    if args.lb:
-	#_networks += create_lb_networks(hostname,args.ha,_networks)
+    if args.lb is not None:
 	_networks.update(create_lb_networks(hostname,args.ha,_networks))
 
+    # Create ports
     _ports = create_fw_ports(hostname,_networks)
-    if args.lb:
-	#_ports += create_lb_ports(hostname,_networks,_ports)
+    if args.lb is not None:
 	_ports.update(create_lb_ports(hostname,_networks,_ports))
 
-    _fw_configuration = build_fw_configuration(hostname,keystone_project.name,keystone_user.name,args.ha,args.lb)
-    launch_firewall(args.ha,_ports,_fw_configuration)
+    _fw_configuration = build_fw_configuration(hostname,keystone_project.name,keystone_user.name,args.ha)
+    launch_firewall(args.ha,_ports,_fw_configuration,fw_image,fw_flavor)
 
-    if args.lb: # If user is spinning up load balancers, launch 'em behind the FW
+    if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW
         _lb_configuration = build_lb_configuration(hostname,args.ha)
-        launch_loadbalancer(args.ha,_ports,_lb_configuration)
+        launch_loadbalancer(args.ha,_ports,_lb_configuration,lb_image,lb_flavor)

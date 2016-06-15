@@ -29,6 +29,7 @@ def generate_standalone_interface_config(data):
         ! Interface m0/0 is management (first attached interface)
         interface management0/0
         nameif management
+        management-only
         security-level 10
         ip address {fw_mgmt_primary_address} {fw_mgmt_mask}
         no shut
@@ -149,7 +150,7 @@ def generate_base_config(data):
         service-policy global_policy global        
 
         ! User configuration
-        username jdenton password ppc$7400 privilege 15
+        username jdenton password openstack12345 privilege 15
           '''.format(**data)
 
     return textwrap.dedent(base_config)

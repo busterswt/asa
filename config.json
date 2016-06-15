@@ -1,28 +1,30 @@
 {
+    "networks": {
+	"outside": "1545bdef-87c7-47e9-9c7c-bb63f8fe1f57",
+	"mgmt": "9d87197c-77f9-49e2-bf5a-d90f3d64d9ea"
+    },
     "firewall": {
-        "asa": {
-            "image": "2e86a35d-ee9f-4dcb-981b-a9d3b25a3fc8",
-            "flavor": {
-                "small": "4043f5a8-8adb-48fe-9b14-168a09e20bcd",
-                "medium": "ec6f1328-cf25-4eae-a197-184d3746fcef",
-                "large": "4b734c1f-1a9c-47a9-a800-42e6d22780d4"
-            }
+        "asav5": {
+            "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",
+            "flavor": "8e8b4d5c-d198-4d92-84bb-8374e5847af7"
+         },
+	"asav10": {
+	    "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",
+            "flavor": "ad4a7821-abec-48d2-a51a-66f43c1f3bb2"
+         },
+	"asav30": {
+            "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",
+            "flavor": "93cebbbe-9c78-4ca2-99ab-db2607e26deb"
          }
     },
     "loadbalancer": {
         "f5": {
-       	    "image": "1234",
-       	    "flavor": {
-       	       	"large": "2e5aa369-0d5e-4615-a7d6-cd42cd7788dd"
-       	    }
+       	    "image": "00c47e91-72cd-4d1f-aa7a-8b4fdf115db1",
+       	    "flavor": "3"
         },
         "netscaler": {
-            "image": "0987",
-            "flavor": {
-                "small": "s3",
-                "medium": "m3",
-                "large": "l3"
-            }
+            "image": "cb6818ab-5fe5-4ff7-bf45-3ed0995220c4",
+            "flavor": "3"
        	}
     }
 }
