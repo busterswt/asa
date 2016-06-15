@@ -18,7 +18,7 @@
          }
     },
     "loadbalancer": {
-        "f5": {
+        "ltm": {
        	    "image": "00c47e91-72cd-4d1f-aa7a-8b4fdf115db1",
        	    "flavor": "3"
         },
