@@ -73,12 +73,8 @@ def generate_ha_interface_config(data):
         no shut
         route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
 
-        ! Interface g0/0 must be failover (second attached interface)
+        ! Interface g0/0 must be OUTSIDE (second attached interface)
         interface GigabitEthernet0/0
-        no shut
-
-        ! Interface g0/1 must be OUTSIDE (third attached interface)
-        interface GigabitEthernet0/1
         no shut
         nameif OUTSIDE
         security-level 0
@@ -89,8 +85,8 @@ def generate_ha_interface_config(data):
         ip verify reverse-path interface OUTSIDE
         access-group 101 in interface OUTSIDE
 
-        ! Interface g0/2 must be INSIDE (fourth attached interface)
-        interface GigabitEthernet0/2
+        ! Interface g0/1 must be INSIDE (third attached interface)
+        interface GigabitEthernet0/1
         no shut
         nameif INSIDE
         security-level 100
@@ -99,6 +95,10 @@ def generate_ha_interface_config(data):
         sysopt noproxyarp INSIDE
         ip verify reverse-path interface INSIDE
         access-group 100 in interface INSIDE
+
+        ! Interface g0/2 must be failover (third attached interface)
+        interface GigabitEthernet0/2
+        no shut
           '''.format(**data)
 
     return textwrap.dedent(ha_config)
