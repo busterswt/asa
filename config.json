@@ -19,12 +19,12 @@
     },
     "loadbalancer": {
         "ltm": {
-       	    "image": "9bb9fb9b-e7e8-4698-8770-b9bbc0fa94d8",
+       	    "image": "9e014ef1-6138-40fd-85ba-16236acc333c",
        	    "flavor": "ebbd839d-54eb-4bd2-849b-1cbf0d13df2b"
         },
         "netscaler": {
             "image": "38a25d9d-5414-472c-ba5d-413cb350c303",
-            "flavor": "8a91f8e3-37d7-4278-ba05-f3584c95bde8"
+            "flavor": "18a37179-7707-4c76-8dcf-9183dccc024d"
        	}
     }
 }
