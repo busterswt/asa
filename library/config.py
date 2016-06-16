@@ -663,9 +663,25 @@ def generate_f5_config(ha,_lb_configuration):
     json_config = json.dumps(config)
     return json_config
 
+
 def generate_netscaler_config(ha,data):
+    config = generate_base_netscaler_config(data)
+
+    # Generate failover configuration (if ha)
+    if ha:
+        config += generate_netscaler_failover_config(data)
+
+    return config
+
+def generate_base_netscaler_config(data):
     # (todo) implement base key injection
     # (todo) implement ha configuration
+
+    # Fix hostnames
+    if data['priority'] == 'primary':
+	data['my_hostname'] = data['lb_hostname']+'-Unit1'
+    else:
+	data['my_hostname'] = data['lb_hostname']+'-Unit2'
 
     # Generate the base configuration
     netscaler_config = '''
@@ -673,7 +689,7 @@ def generate_netscaler_config(ha,data):
         nscli -u :nsroot:nsroot savec
 
         # Add additional configuration
-        nscli -u :nsroot:nsroot set ns hostName {lb_hostname}
+        nscli -u :nsroot:nsroot set ns hostName {my_hostname}
         nscli -u :nsroot:nsroot add vlan 4092
         nscli -u :nsroot:nsroot add vlan 4091
         nscli -u :nsroot:nsroot add ns ip {lb_outside_primary_address} {lb_outside_mask} -vServer DISABLED
@@ -690,3 +706,24 @@ def generate_netscaler_config(ha,data):
           '''.format(**data)
 
     return textwrap.dedent(netscaler_config)
+
+def generate_netscaler_failover_config(data):
+
+    if data['priority'] == 'primary':
+	data['peerid'] = '2'
+        netscaler_failover_config = '''
+            nscli -u :nsroot:nsroot add node {peerid} {lb_mgmt_secondary_address}
+            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_primary_address} -password @penstack1234
+            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_secondary_address} -password @penstack1234
+              '''.format(**data)
+    
+    elif data['priority'] == 'secondary':
+        data['peerid'] = '1'
+        netscaler_failover_config = '''
+            nscli -u :nsroot:nsroot add node {peerid} {lb_mgmt_primary_address}
+            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_primary_address} -password @penstack1234
+            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_secondary_address} -password @penstack1234
+              '''.format(**data)
+
+
+    return textwrap.dedent(netscaler_failover_config)

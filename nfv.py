@@ -290,7 +290,7 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
 
     # Boot the primary load balancer
     print "\nLaunching primary load balancer..."
-    #_lb_configuration['priority'] = 'primary'
+    _lb_configuration['priority'] = 'primary'
     if lb == 'ltm':
         primary_config = configlib.generate_f5_config(ha,_lb_configuration)
     elif lb == 'netscaler':
@@ -334,8 +334,15 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
     if ha:
         # Boot the secondary LB
         print "\nLaunching secondary load balancer..."
-        #_device_configuration['priority'] = 'secondary'
-        secondary_config = configlib.generate_f5_config(ha,_lb_configuration)
+        _lb_configuration['priority'] = 'secondary'
+        if lb == 'ltm':
+	    secondary_config = configlib.generate_f5_config(ha,_lb_configuration)
+        elif lb == 'netscaler':
+            secondary_config = configlib.generate_netscaler_config(ha,_lb_configuration)
+        else:
+            print "Unsupported load balancer. Exiting!"
+            sys.exit(1)
+
 	ports = []
         ports.append({'mgmt':_ports['lb_mgmt_secondary_port_id']})
         ports.append({'outside':_ports['lb_outside_secondary_port_id']})
