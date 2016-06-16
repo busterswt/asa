@@ -7,9 +7,6 @@ import library.nova as novalib
 import library.keystone as keystonelib
 from library.printf import printf
 
-#outside_network_id = '8c5726e0-9ee8-4bca-810d-78cffb2b281f'
-#management_network_id = 'c9e8b39d-c8e2-43ed-817a-c1022a3aadc9'
-
 def create_project():
 
     print "Creating Keystone project and user..."
@@ -289,12 +286,18 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
 	details.add_row(["Secondary Console:",novalib.get_console(secondary_fw)])
     print details
 
-def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
+def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
 
     # Boot the primary load balancer
     print "\nLaunching primary load balancer..."
     #_lb_configuration['priority'] = 'primary'
-    primary_config = configlib.generate_f5_config(ha,_lb_configuration)
+    if lb == 'ltm':
+        primary_config = configlib.generate_f5_config(ha,_lb_configuration)
+    elif lb == 'netscaler':
+	primary_config = configlib.generate_netscaler_config(ha,_lb_configuration)
+    else:
+        print "Unsupported load balancer. Exiting!"
+	sys.exit(1)
 
     # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the LB.
     if ha:
@@ -309,7 +312,7 @@ def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
 	ports.append({'outside':_ports['lb_outside_primary_port_id']})
 	ports.append({'inside':_ports['lb_inside_primary_port_id']})
 
-    primary_lb = novalib.boot_f5(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
+    primary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
     
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
@@ -339,7 +342,7 @@ def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
         ports.append({'inside':_ports['lb_inside_secondary_port_id']})
         ports.append({'failover':_ports['lb_failover_secondary_port_id']})
 
-        secondary_lb = novalib.boot_f5(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
+        secondary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
   
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -429,4 +432,4 @@ if __name__ == "__main__":
 
     if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW
         _lb_configuration = build_lb_configuration(hostname,args.ha)
-        launch_loadbalancer(args.ha,_ports,_lb_configuration,lb_image,lb_flavor)
+        launch_loadbalancer(args.ha,args.lb,_ports,_lb_configuration,lb_image,lb_flavor)

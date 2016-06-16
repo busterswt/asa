@@ -21,7 +21,11 @@ from neutronclient.v2_0 import client as nclient
 from novaclient import client as novaclient
 
 # Evaluate the auth URL to determine if user is using v2 or v3 Keystone API
-u = urlparse(os.environ['OS_AUTH_URL'])
+try:
+    u = urlparse(os.environ['OS_AUTH_URL'])
+except Exception, e:
+    print ("Error! Unable to read OS_AUTH_URL. Please source credentials.")
+    sys.exit(1)
 
 if "v2.0" in u.path:
     try:
