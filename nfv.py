@@ -5,6 +5,7 @@ import library.neutron as neutronlib
 import library.config as configlib
 import library.nova as novalib
 import library.keystone as keystonelib
+from library.printf import printf
 
 #outside_network_id = '8c5726e0-9ee8-4bca-810d-78cffb2b281f'
 #management_network_id = 'c9e8b39d-c8e2-43ed-817a-c1022a3aadc9'
@@ -217,13 +218,19 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary firewall %s to go ACTIVE..." % primary_fw.id
     status = novalib.check_status(primary_fw.id)
+    duration = 0
     while not status == "ACTIVE":
 	if status == "ERROR":
 	    print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
 	    sys.exit(1)
 	else:
-	    time.sleep(1)
-            status = novalib.check_status(primary_fw.id)
+	    if duration >= 20:
+		print "Waiting..."
+		duration = 0;
+	    else:
+	        time.sleep(1)
+		duration += 1
+                status = novalib.check_status(primary_fw.id)
 
     if ha:
 	# Boot the secondary ASA
@@ -242,13 +249,19 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
         # (todo) Will want to put an ERROR check in here so we can move on
         print "Waiting for secondary firewall %s to go ACTIVE..." % secondary_fw.id
         status = novalib.check_status(secondary_fw.id)
+	duration = 0
         while not status == "ACTIVE":
             if status == "ERROR":
                 print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
                 sys.exit(1)
             else:
-                time.sleep(1)
-                status = novalib.check_status(secondary_fw.id)
+		if duration >= 20:
+                    print "Waiting..."
+                    duration = 0;
+                else:
+                    time.sleep(1)
+                    duration += 1
+                    status = novalib.check_status(secondary_fw.id)
 
     print "Please wait a few minutes while your firewall(s) come online."
 
@@ -279,7 +292,7 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
 def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
 
     # Boot the primary load balancer
-    print "Launching primary load balancer..."
+    print "\nLaunching primary load balancer..."
     #_lb_configuration['priority'] = 'primary'
     primary_config = configlib.generate_f5_config(ha,_lb_configuration)
 
@@ -301,17 +314,23 @@ def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
     status = novalib.check_status(primary_lb.id)
+    duration = 0
     while not status == "ACTIVE":
         if status == "ERROR":
             print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
             sys.exit(1)
         else:
-            time.sleep(1)
+            duration += 1
+	    if (duration % 10 == 0):
+		printf('|')
+	    else:	 
+	        printf('.')
+	    time.sleep(1)		
             status = novalib.check_status(primary_lb.id)
 
     if ha:
         # Boot the secondary LB
-        print "Launching secondary load balancer..."
+        print "\nLaunching secondary load balancer..."
         #_device_configuration['priority'] = 'secondary'
         secondary_config = configlib.generate_f5_config(ha,_lb_configuration)
 	ports = []
@@ -326,15 +345,21 @@ def launch_loadbalancer(ha,_ports,_lb_configuration,lb_image,lb_flavor):
         # (todo) Will want to put an ERROR check in here so we can move on
         print "Waiting for secondary load balancer %s to go ACTIVE..." % secondary_lb.id
         status = novalib.check_status(secondary_lb.id)
+	duration = 0
         while not status == "ACTIVE":
             if status == "ERROR":
                 print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
                 sys.exit(1)
             else:
+		duration += 1
+                if (duration % 10 == 0):
+                    printf('|')
+                else:
+                    printf('.')
                 time.sleep(1)
                 status = novalib.check_status(secondary_lb.id)
 
-    print "Please wait a few minutes while your load balancer(s) come online."
+    print "Done!\n Please wait a few minutes while your load balancer(s) come online."
 
     details = PrettyTable(["Parameter", "Value"])
     details.align["Parameter"] = "l" # right align
@@ -396,6 +421,9 @@ if __name__ == "__main__":
     if args.lb is not None:
 	_ports.update(create_lb_ports(hostname,_networks,_ports))
 
+
+    # Launch devices
+    print "Launching devices... (This operation can take a while for large images.)"
     _fw_configuration = build_fw_configuration(hostname,keystone_project.name,keystone_user.name,args.ha)
     launch_firewall(args.ha,_ports,_fw_configuration,fw_image,fw_flavor)
 
