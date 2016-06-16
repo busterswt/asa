@@ -67,6 +67,7 @@ def generate_ha_interface_config(data):
         ! Interface m0/0 is management (first attached interface)
         interface management0/0
         nameif management
+        management-only
         security-level 10
         ip address {fw_mgmt_primary_address} {fw_mgmt_mask} standby {fw_mgmt_secondary_address}
         no shut
@@ -492,6 +493,8 @@ def generate_security_config():
         ! Home Lab (REMOVE)
         ssh 192.168.1.0 255.255.255.0 management
         ssh 192.168.1.0 255.255.255.0 OUTSIDE
+        ! OOB From RAX
+        ssh 10.0.0.0 255.240.0.0 management
         ssh timeout 15
           '''
 
