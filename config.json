@@ -15,6 +15,10 @@
 	"asav30": {
             "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",
             "flavor": "93cebbbe-9c78-4ca2-99ab-db2607e26deb"
+         },
+        "vsrx": {
+            "image": "5b0de2c9-0bd2-494e-9e82-6050e7e3d0a6",
+            "flavor": "4b57309e-4d17-4135-9200-7d9889f67585"
          }
     },
     "loadbalancer": {

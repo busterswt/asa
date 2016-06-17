@@ -17,6 +17,16 @@ def create_network(name,network_type="vxlan"):
 #    return response["network"]["id"]
     return neutron.create_network(body=body_value)
 
+def get_segment_id_from_network(network_id):
+    network_details = neutron.show_network(network_id)
+    segmentation_id = network_details["network"]["provider:segmentation_id"]
+    network_type = network_details["network"]["provider:network_type"]
+
+    if network_type != "vlan":
+	segmentation_id = "N/A"
+
+    return segmentation_id
+
 def create_subnet(network_id,cidr,gateway_ip=None):
 
     body_value = {

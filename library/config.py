@@ -727,3 +727,9 @@ def generate_netscaler_failover_config(data):
 
 
     return textwrap.dedent(netscaler_failover_config)
+
+def generate_srx_config(ha,data):
+    config = '''
+	set interfaces fxp0 unit 0 family inet address 192.168.10.40/24
+	  '''
+    return config

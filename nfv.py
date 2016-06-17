@@ -44,6 +44,7 @@ def create_fw_networks(hostname,ha,lb):
 	_networks['fw_inside_gateway'] = "192.168.100.1"
 
     _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
+    _networks['fw_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(fw_inside_network["network"]["id"])
     _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'])
 
 
@@ -73,7 +74,7 @@ def create_lb_networks(hostname,ha,_networks):
 
     _networks['lb_inside_network_id'] = lb_inside_network["network"]["id"]
     _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr,_networks['lb_inside_gateway'])
-
+    _networks['lb_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(lb_inside_network["network"]["id"])
 
     # Create FAILOVER network if highly-available
     if ha:
@@ -137,58 +138,60 @@ def create_lb_ports(hostname,_networks,_ports):
 
 def build_lb_configuration(hostname,ha=False):
     # Build the configuration that will be pushed to the devices
-    _device_configuration = {}
-    _device_configuration['lb_hostname'] = hostname
-    _device_configuration['lb_inside_net_addr'] = _networks['lb_inside_net_addr']
-    _device_configuration['lb_inside_mask'] = _networks['lb_inside_mask']
-    _device_configuration['lb_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_primary_port_id'])
-    _device_configuration['lb_mgmt_gateway'],_device_configuration['lb_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['lb_mgmt_primary_port_id'])
-    _device_configuration['lb_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_primary_port_id'])
-    _device_configuration['lb_outside_gateway'],_device_configuration['lb_outside_mask'], = neutronlib.get_gateway_from_port(_ports['lb_outside_primary_port_id'])
-    _device_configuration['lb_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_primary_port_id'])
-    _device_configuration['lb_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_inside_subnet_id'])
+    _lb_configuration = {}
+    _lb_configuration['lb_hostname'] = hostname
+    _lb_configuration['lb_inside_net_addr'] = _networks['lb_inside_net_addr']
+    _lb_configuration['lb_inside_mask'] = _networks['lb_inside_mask']
+    _lb_configuration['lb_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_primary_port_id'])
+    _lb_configuration['lb_mgmt_gateway'],_lb_configuration['lb_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['lb_mgmt_primary_port_id'])
+    _lb_configuration['lb_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_primary_port_id'])
+    _lb_configuration['lb_outside_gateway'],_lb_configuration['lb_outside_mask'], = neutronlib.get_gateway_from_port(_ports['lb_outside_primary_port_id'])
+    _lb_configuration['lb_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_primary_port_id'])
+    _lb_configuration['lb_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_inside_subnet_id'])
+    _lb_configuration['lb_inside_segmentation_id'] = _networks['lb_inside_segmentation_id']
 
     if ha:
-        _device_configuration['lb_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_primary_port_id'])
-        _device_configuration['lb_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_secondary_port_id'])
-        _device_configuration['lb_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_secondary_port_id'])
-        _device_configuration['lb_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_failover_subnet_id'])
-        _device_configuration['lb_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_secondary_port_id'])
-        _device_configuration['lb_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_secondary_port_id'])
+        _lb_configuration['lb_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_primary_port_id'])
+        _lb_configuration['lb_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_secondary_port_id'])
+        _lb_configuration['lb_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_secondary_port_id'])
+        _lb_configuration['lb_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_failover_subnet_id'])
+        _lb_configuration['lb_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_secondary_port_id'])
+        _lb_configuration['lb_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_secondary_port_id'])
 
-    return _device_configuration
+    return _lb_configuration
 
 def build_fw_configuration(hostname,project_name,user_name,ha=False):
 
     # Build the configuration that will be pushed to the devices
-    _device_configuration = {}
-    _device_configuration['fw_hostname'] = hostname
-    _device_configuration['fw_inside_net_addr'] = _networks['fw_inside_net_addr']
-    _device_configuration['fw_inside_mask'] = _networks['fw_inside_mask']
-    _device_configuration['fw_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_primary_port_id'])
-    _device_configuration['fw_mgmt_gateway'],_device_configuration['fw_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['fw_mgmt_primary_port_id'])
-    _device_configuration['fw_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_primary_port_id'])
-    _device_configuration['fw_outside_gateway'],_device_configuration['fw_outside_mask'], = neutronlib.get_gateway_from_port(_ports['fw_outside_primary_port_id'])
-    _device_configuration['fw_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_primary_port_id'])
-    _device_configuration['fw_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_inside_subnet_id'])
+    _fw_configuration = {}
+    _fw_configuration['fw_hostname'] = hostname
+    _fw_configuration['fw_inside_net_addr'] = _networks['fw_inside_net_addr']
+    _fw_configuration['fw_inside_mask'] = _networks['fw_inside_mask']
+    _fw_configuration['fw_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_primary_port_id'])
+    _fw_configuration['fw_mgmt_gateway'],_fw_configuration['fw_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['fw_mgmt_primary_port_id'])
+    _fw_configuration['fw_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_primary_port_id'])
+    _fw_configuration['fw_outside_gateway'],_fw_configuration['fw_outside_mask'], = neutronlib.get_gateway_from_port(_ports['fw_outside_primary_port_id'])
+    _fw_configuration['fw_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_primary_port_id'])
+    _fw_configuration['fw_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_inside_subnet_id'])
+    _fw_configuration['fw_inside_segmentation_id'] = _networks['fw_inside_segmentation_id']
 
     if ha:
-	_device_configuration['fw_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_primary_port_id'])
-	_device_configuration['fw_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_secondary_port_id'])
-	_device_configuration['fw_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_secondary_port_id'])
-	_device_configuration['fw_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_failover_subnet_id']) 
-	_device_configuration['fw_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_secondary_port_id'])
-	_device_configuration['fw_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_secondary_port_id'])
+	_fw_configuration['fw_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_primary_port_id'])
+	_fw_configuration['fw_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_secondary_port_id'])
+	_fw_configuration['fw_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_secondary_port_id'])
+	_fw_configuration['fw_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_failover_subnet_id']) 
+	_fw_configuration['fw_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_secondary_port_id'])
+	_fw_configuration['fw_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_secondary_port_id'])
 
     # Build an IPSec Client VPN configuration
     # (todo) Build AnyConnect configuration
-    _device_configuration['tunnel_group'] = project_name
-    _device_configuration['group_policy'] = project_name
-    _device_configuration['group_password'] = keystonelib.generate_password(16)
-    _device_configuration['vpn_user'] = user_name
-    _device_configuration['vpn_password'] = keystonelib.generate_password(16)
+    _fw_configuration['tunnel_group'] = project_name
+    _fw_configuration['group_policy'] = project_name
+    _fw_configuration['group_password'] = keystonelib.generate_password(16)
+    _fw_configuration['vpn_user'] = user_name
+    _fw_configuration['vpn_password'] = keystonelib.generate_password(16)
 
-    return _device_configuration
+    return _fw_configuration
 
 def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
 
@@ -284,20 +287,22 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
     details = PrettyTable(["Parameter", "Value"])
     details.align["Parameter"] = "l" # right align
     details.align["Value"] = "l" # left align
-    details.add_row(["Primary IP:",_device_configuration['fw_outside_primary_address']])
-    details.add_row(["Primary Management IP:",_device_configuration['fw_mgmt_primary_address']])
+    details.add_row(["Hostname:",_fw_configuration['fw_hostname']])
+    details.add_row(["Primary IP:",_fw_configuration['fw_outside_primary_address']])
+    details.add_row(["Primary Management IP:",_fw_configuration['fw_mgmt_primary_address']])
 
     # Only print secondary details if ha
     if ha:
-        details.add_row(["Secondary IP:",_device_configuration['fw_outside_secondary_address']])
-        details.add_row(["Secondary Management IP:",_device_configuration['fw_mgmt_secondary_address']])
+        details.add_row(["Secondary IP:",_fw_configuration['fw_outside_secondary_address']])
+        details.add_row(["Secondary Management IP:",_fw_configuration['fw_mgmt_secondary_address']])
 
+    details.add_row(["Inside Network VLAN ID",_fw_configuration['fw_inside_segmentation_id']])
     details.add_row(["",""])
-    details.add_row(["VPN Endpoint:",_device_configuration['fw_outside_primary_address']])
-    details.add_row(["VPN Group Name:",_device_configuration['tunnel_group']])
-    details.add_row(["VPN Group Password:",_device_configuration['group_password']])
-    details.add_row(["VPN Username:",_device_configuration['vpn_user']])
-    details.add_row(["VPN Password:",_device_configuration['vpn_password']])
+    details.add_row(["VPN Endpoint:",_fw_configuration['fw_outside_primary_address']])
+    details.add_row(["VPN Group Name:",_fw_configuration['tunnel_group']])
+    details.add_row(["VPN Group Password:",_fw_configuration['group_password']])
+    details.add_row(["VPN Username:",_fw_configuration['vpn_user']])
+    details.add_row(["VPN Password:",_fw_configuration['vpn_password']])
     details.add_row(["",""])
     details.add_row(["Primary Console:",novalib.get_console(primary_fw)])
 
@@ -393,12 +398,15 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
     details = PrettyTable(["Parameter", "Value"])
     details.align["Parameter"] = "l" # right align
     details.align["Value"] = "l" # left align
+    details.add_row(["Hostname:",_lb_configuration['lb_hostname']])
     details.add_row(["Primary Management IP:",_lb_configuration['lb_mgmt_primary_address']])
     
     # Only print secondary details if ha
     if ha:
         details.add_row(["Secondary Management IP:",_lb_configuration['lb_mgmt_secondary_address']])        
 
+    details.add_row(["Inside Network VLAN ID",_lb_configuration['lb_inside_segmentation_id']])
+    details.add_row(["",""])
     details.add_row(["Primary Console:",novalib.get_console(primary_lb)])
     if ha:
 	details.add_row(["Secondary Console:",novalib.get_console(secondary_lb)])
