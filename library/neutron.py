@@ -27,14 +27,14 @@ def get_segment_id_from_network(network_id):
 
     return segmentation_id
 
-def create_subnet(network_id,cidr,gateway_ip=None):
+def create_subnet(network_id,cidr,gateway_ip=None,dhcp=False):
 
     body_value = {
         "subnet": {
             "network_id": network_id,
             "cidr": cidr,
             "ip_version": "4",
-            "enable_dhcp": False,
+            "enable_dhcp": dhcp,
             "gateway_ip": gateway_ip
         }
     }

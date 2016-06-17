@@ -10,6 +10,7 @@ optional arguments:
                         Specify firewall type
   --lb {ltm,netscaler}  Specify load balancer type
   --ha                  Builds network devices in a highly-available manner
+  --vm                  Builds a virtual machine on the backend
 ```
   
 The script will build a firewall and load balancer in standalone or HA mode. There is still work to do to bootstrap the instances.

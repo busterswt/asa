@@ -3,6 +3,10 @@
 	"outside": "1545bdef-87c7-47e9-9c7c-bb63f8fe1f57",
 	"mgmt": "9d87197c-77f9-49e2-bf5a-d90f3d64d9ea"
     },
+    "vm": {
+	"image": "a445e62d-625b-4f9a-a723-533d4b0ce833",
+	"flavor": "2"
+    },
     "firewall": {
         "asav5": {
             "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",

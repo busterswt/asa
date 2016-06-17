@@ -27,7 +27,7 @@ def boot_server(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
 
     return server
 
-def boot_f5(hostname,image_id,flavor_id,ports,userdata,az):
+def boot_lb(hostname,image_id,flavor_id,ports,userdata,az):
 
     # Convert ports to a list of dictionaries
     nic_ports = []
@@ -46,6 +46,16 @@ def boot_f5(hostname,image_id,flavor_id,ports,userdata,az):
 
     return server
 
+def boot_vm(hostname,network_id,image_id,flavor_id,az):
+
+    server = nova.servers.create(name=hostname,
+                image=image_id,
+                flavor=flavor_id,
+                availability_zone=az,
+                nics=[{'net-id':network_id}]
+                )
+    return server
+
 def check_status(server_id):
     
     # Returns the status of the instance. Delayed (usually) by busy API.
@@ -60,3 +70,4 @@ def get_console(server):
 #    vnc = server.get_vnc_console("xvpvnc")
     vnc = server.get_spice_console("spice-html5")
     return vnc['console']['url']
+

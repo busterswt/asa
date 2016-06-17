@@ -31,6 +31,7 @@ def create_fw_networks(hostname,ha,lb):
     if lb is not None:
 	_networks['fw_inside_network_name'] = hostname + "-FW-LB"
 	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vxlan")
+	dhcp=False
 	inside_cidr = "192.168.254.0/24" # (todo) Allow this to be set on CLI
 	_networks['fw_inside_net_addr'] = "192.168.254.0" # (todo) make this discoverable
 	_networks['fw_inside_mask'] = "255.255.255.240"
@@ -38,6 +39,7 @@ def create_fw_networks(hostname,ha,lb):
     else:
 	_networks['fw_inside_network_name'] = hostname + "-FW-INSIDE"
 	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vlan")	
+	dhcp=True
 	inside_cidr = "192.168.100.0/28"
         _networks['fw_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
         _networks['fw_inside_mask'] = "255.255.255.0"
@@ -45,7 +47,7 @@ def create_fw_networks(hostname,ha,lb):
 
     _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
     _networks['fw_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(fw_inside_network["network"]["id"])
-    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'])
+    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'],dhcp=dhcp)
 
 
     # Create FAILOVER network if highly-available
@@ -67,19 +69,21 @@ def create_lb_networks(hostname,ha,_networks):
     # Create INSIDE network (where servers live)
     _networks['lb_inside_network_name'] = hostname + "-LB-INSIDE"
     lb_inside_network = neutronlib.create_network(_networks['lb_inside_network_name'],network_type="vlan")
+    dhcp=True
     inside_cidr = "192.168.100.0/24"
     _networks['lb_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
     _networks['lb_inside_mask'] = "255.255.255.0"
     _networks['lb_inside_gateway'] = "192.168.100.1"
 
     _networks['lb_inside_network_id'] = lb_inside_network["network"]["id"]
-    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr,_networks['lb_inside_gateway'])
+    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr,_networks['lb_inside_gateway'],dhcp=dhcp)
     _networks['lb_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(lb_inside_network["network"]["id"])
 
     # Create FAILOVER network if highly-available
     if ha:
         _networks['lb_failover_network_name'] = hostname + "-LB-FAILOVER"
         lb_failover_network = neutronlib.create_network(_networks['lb_failover_network_name'],network_type="vxlan")
+	dhcp=False
         _networks['lb_failover_network_id'] = lb_failover_network["network"]["id"]
         failover_cidr = "192.168.255.16/28"
         _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(_networks['lb_failover_network_id'],failover_cidr,None)
@@ -412,14 +416,53 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
 	details.add_row(["Secondary Console:",novalib.get_console(secondary_lb)])
     print details
 
+def launch_instance(network_id,vm_image,vm_flavor):
+
+    # Boot the primary load balancer
+    print "\nLaunching a virtual machine for testing..."    
+
+    vm_hostname = hostname + "-VM"
+    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A")
+
+    # Check to see if VM state is ACTIVE.
+    print "Waiting for the virtual machine %s to go ACTIVE..." % instance.id
+    status = novalib.check_status(instance.id)
+    duration = 0
+    while not status == "ACTIVE":
+        if status == "ERROR":
+            print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
+            sys.exit(1)
+        else:
+            duration += 1
+            if (duration % 10 == 0):
+                printf('|')
+            else:
+                printf('.')
+            time.sleep(1)
+            status = novalib.check_status(instance.id)
+
+    print " Done!\n Please wait a few minutes while your instance(s) come online."
+
+    details = PrettyTable(["Parameter", "Value"])
+    details.align["Parameter"] = "l" # right align
+    details.align["Value"] = "l" # left align
+    details.add_row(["Hostname:",vm_hostname])
+    details.add_row(["Network:",instance.networks])
+    details.add_row(["NAT Address:",""])
+    details.add_row(["Primary Console:",novalib.get_console(instance)])
+
+    print details
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nfv.py - NFV PoC that build virtual firewalls and load balancers')
 
     parser.add_argument('--fw', dest='fw', help='Specify firewall type', choices=['asav5', 'asav10', 'asav30','vsrx'], required=True)
     parser.add_argument('--lb', dest='lb', help='Specify load balancer type', choices=['ltm','netscaler'], required=False)
     parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network devices in a highly-available manner', required=False)
+    parser.add_argument('--vm', dest='vm', action='store_true', help='Builds a virtual machine on the backend', required=False)
     parser.set_defaults(ha=False)
     parser.set_defaults(lb=None)
+    parser.set_defaults(vm=False)
 
     # Array for all arguments passed to script
     args = parser.parse_args()
@@ -440,6 +483,11 @@ if __name__ == "__main__":
 	if args.lb is not None:
 	    lb_image = config['loadbalancer'][args.lb]['image']
 	    lb_flavor = config['loadbalancer'][args.lb]['flavor']
+
+	if args.vm:
+	    vm_image = config['vm']['image']
+	    vm_flavor = config['vm']['flavor']
+
     except Exception, e:
         print "Error loading config file! %s" % e
 	sys.exit(1)
@@ -466,3 +514,11 @@ if __name__ == "__main__":
     if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW
         _lb_configuration = build_lb_configuration(hostname,args.ha)
         launch_loadbalancer(args.ha,args.lb,_ports,_lb_configuration,lb_image,lb_flavor)
+
+    # If --vm is specified, launch a VM in the backend INSIDE network that can be reachable from the web
+    # (todo) Cleanup the dict/array with the configuration and networks
+    if args.vm:
+	network_id = _networks['fw_inside_network_id']
+	if args.lb is not None:
+	    network_id = _networks['lb_inside_network_id']
+	launch_instance(network_id,vm_image,vm_flavor)
