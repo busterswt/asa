@@ -612,11 +612,11 @@ def generate_failover_config(data):
     failover_config = '''
         failover
         failover lan unit {priority}
-        failover lan interface LANFAIL GigabitEthernet0/0
+        failover lan interface LANFAIL GigabitEthernet0/2
         failover polltime unit 1 holdtime 5
         failover key openstack
         failover replication http
-        failover link LANFAIL GigabitEthernet0/0
+        failover link LANFAIL GigabitEthernet0/2
         failover interface ip LANFAIL {fw_failover_primary_address} {fw_failover_netmask} standby {fw_failover_secondary_address}
         '''.format(**data)
 
@@ -634,7 +634,8 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['admin_password'] = 'openstack'
 
     # Generate banner
-    config['bigip']['system_cmds'] = 'tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"'
+#    config['bigip']['system_cmds'] = 'tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"'
+    config['bigip']['system_cmds'] = 'uname -r >> /config/startup'
 
     # Configure network settings
     config['bigip']['network'] = {}
