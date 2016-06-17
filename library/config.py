@@ -1,6 +1,6 @@
 import textwrap, json
 
-def generate_config(ha,data):
+def generate_asa_config(ha,data):
     # Generate the base configuration
     config = generate_base_config(data)
 

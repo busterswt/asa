@@ -190,12 +190,20 @@ def build_fw_configuration(hostname,project_name,user_name,ha=False):
 
     return _device_configuration
 
-def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
+def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
 
     # Boot the primary ASA
     print "Launching primary firewall..."
-    _device_configuration['priority'] = 'primary'
-    primary_config = configlib.generate_config(ha,_device_configuration)
+    _fw_configuration['priority'] = 'primary'
+    if 'asav' in fw:
+        primary_config = configlib.generate_asa_config(ha,_fw_configuration)
+	file_path = "day0"
+    elif 'vsrx' in fw:
+        primary_config = configlib.generate_srx_config(ha,_fw_configuration)
+	file_path = "juniper.conf"
+    else:
+        print "Unsupported firewall. Exiting!"
+        sys.exit(1)
     
     # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the ASA.
     if ha:
@@ -210,7 +218,8 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
         ports.append({'outside':_ports['fw_outside_primary_port_id']})
         ports.append({'inside':_ports['fw_inside_primary_port_id']})
 
-    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az="ZONE-A",file_path="day0")
+    az = "ZONE-A"
+    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az,file_path)
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary firewall %s to go ACTIVE..." % primary_fw.id
@@ -232,15 +241,25 @@ def launch_firewall(ha,_ports,_device_configuration,fw_image,fw_flavor):
     if ha:
 	# Boot the secondary ASA
         print "Launching secondary firewall..."
-        _device_configuration['priority'] = 'secondary'
-        secondary_config = configlib.generate_config(ha,_device_configuration)
+        _fw_configuration['priority'] = 'secondary'
+        if 'asav' in fw:
+            secondary_config = configlib.generate_asa_config(ha,_fw_configuration)
+	    file_path = "day0"
+        elif 'vsrx' in fw:
+            secondary_config = configlib.generate_srx_config(ha,_fw_configuration)
+	    file_path = "juniper.conf"
+        else:
+            print "Unsupported firewall. Exiting!"
+            sys.exit(1)
+
         ports = []
         ports.append({'mgmt':_ports['fw_mgmt_secondary_port_id']})
         ports.append({'outside':_ports['fw_outside_secondary_port_id']})
         ports.append({'inside':_ports['fw_inside_secondary_port_id']})
         ports.append({'failover':_ports['fw_failover_secondary_port_id']})
 
-        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az="ZONE-B",file_path="day0") 
+	az = 'ZONE-B'
+        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az,file_path) 
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -369,7 +388,7 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
                 time.sleep(1)
                 status = novalib.check_status(secondary_lb.id)
 
-    print "Done!\n Please wait a few minutes while your load balancer(s) come online."
+    print " Done!\n Please wait a few minutes while your load balancer(s) come online."
 
     details = PrettyTable(["Parameter", "Value"])
     details.align["Parameter"] = "l" # right align
@@ -388,7 +407,7 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='nfv.py - NFV PoC that build virtual firewalls and load balancers')
 
-    parser.add_argument('--fw', dest='fw', help='Specify firewall type', choices=['asav5', 'asav10', 'asav30'], required=True)
+    parser.add_argument('--fw', dest='fw', help='Specify firewall type', choices=['asav5', 'asav10', 'asav30','vsrx'], required=True)
     parser.add_argument('--lb', dest='lb', help='Specify load balancer type', choices=['ltm','netscaler'], required=False)
     parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network devices in a highly-available manner', required=False)
     parser.set_defaults(ha=False)
@@ -431,11 +450,10 @@ if __name__ == "__main__":
     if args.lb is not None:
 	_ports.update(create_lb_ports(hostname,_networks,_ports))
 
-
     # Launch devices
     print "Launching devices... (This operation can take a while for large images.)"
     _fw_configuration = build_fw_configuration(hostname,keystone_project.name,keystone_user.name,args.ha)
-    launch_firewall(args.ha,_ports,_fw_configuration,fw_image,fw_flavor)
+    launch_firewall(args.ha,args.fw,_ports,_fw_configuration,fw_image,fw_flavor)
 
     if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW
         _lb_configuration = build_lb_configuration(hostname,args.ha)
