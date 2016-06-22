@@ -630,12 +630,16 @@ def generate_f5_config(ha,_lb_configuration):
     config = {}
     config['bigip'] = {}
     config['bigip']['ssh_key_inject'] = 'false'
-    config['bigip']['change_password'] = 'false'
-    config['bigip']['admin_password'] = 'openstack'
+    config['bigip']['change_passwords'] = 'true'
+    config['bigip']['admin_password'] = 'openstack12345'
+    config['bigip']['root_password'] = 'openstack12345'
 
-    # Generate banner
-#    config['bigip']['system_cmds'] = 'tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"'
-    config['bigip']['system_cmds'] = 'uname -r >> /config/startup'
+    # Execute custom commands
+    config['bigip']['system_cmds'] = []
+    config['bigip']['system_cmds'].append('touch /tmp/openstack-moonshine')
+    config['bigip']['system_cmds'].append('uname -r >> /tmp/openstack-moonshine')
+    config['bigip']['system_cmds'].append('tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"')
+    # Additional commands must be appended like those above
 
     # Configure network settings
     config['bigip']['network'] = {}
@@ -651,8 +655,11 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['network']['interfaces']['1.2']['vlan_name'] = 'INTERNAL'
     config['bigip']['network']['interfaces']['1.2']['address'] = _lb_configuration['lb_inside_primary_address']
     config['bigip']['network']['interfaces']['1.2']['netmask'] = _lb_configuration['lb_inside_mask']
-    config['bigip']['network']['routes'] = {}
-    config['bigip']['network']['routes']['0.0.0.0/0'] = '1.2.1.254'
+
+    # Add routes
+    config['bigip']['network']['routes'] = []
+    config['bigip']['network']['routes'].append({'destination':'0.0.0.0/0','gateway':_lb_configuration['lb_outside_gateway']})
+    # Additional routes must be appended like those above!
 
     if ha:
 	config['bigip']['network']['interfaces']['1.3'] = {}
@@ -660,8 +667,10 @@ def generate_f5_config(ha,_lb_configuration):
 	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
 	config['bigip']['network']['interfaces']['1.3']['address'] = _lb_configuration['lb_failover_primary_address']
 	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_netmask']
+        config['bigip']['network']['interfaces']['1.3']['is_failover'] = 'true'
 
     json_config = json.dumps(config)
+    print json_config
     return json_config
 
 
@@ -731,6 +740,115 @@ def generate_netscaler_failover_config(data):
 
 def generate_srx_config(ha,data):
     config = '''
-	set interfaces fxp0 unit 0 family inet address 192.168.10.40/24
-	  '''
+version 15.1X49-D50.3;
+system {{
+    host-name srx;
+    root-authentication {{
+        encrypted-password "$5$ytpefe9E$XTJpyXsaA9wT0IXXyg4N/xLsnRG2mbMg2MO2WGQCpW0"; ## SECRET-DATA
+    }}
+    services {{
+        ssh;
+        web-management {{
+            http {{
+                interface fxp0.0;
+            }}
+        }}
+    }}
+    syslog {{
+        user * {{
+            any emergency;
+        }}
+        file messages {{
+            any any;
+            authorization info;
+        }}
+        file interactive-commands {{
+            interactive-commands any;
+        }}
+    }}
+    license {{
+        autoupdate {{
+            url https://james.test.net/junos/key_retrieval;
+        }}
+    }}
+}}
+security {{
+    screen {{
+        ids-option untrust-screen {{
+            icmp {{
+                ping-death;
+            }}
+            ip {{
+                source-route-option;
+                tear-drop;
+            }}
+            tcp {{
+                syn-flood {{
+                    alarm-threshold 1024;
+                    attack-threshold 200;
+                    source-threshold 1024;
+                    destination-threshold 2048;
+                    queue-size 2000; ## Warning: 'queue-size' is deprecated
+                    timeout 20;
+                }}
+                land;
+            }}
+        }}
+    }}
+    policies {{
+        from-zone trust to-zone trust {{
+            policy default-permit {{
+                match {{
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }}
+                then {{
+                    permit;
+                }}
+            }}
+        }}
+        from-zone trust to-zone untrust {{
+            policy default-permit {{
+                match {{
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }}
+                then {{
+                    permit;
+                }}
+            }}
+        }}
+    }}
+    zones {{
+        security-zone trust {{
+            tcp-rst;
+            interfaces {{
+                ge-0/0/0.0;
+            }}
+        }}
+        security-zone untrust {{
+            screen untrust-screen;
+        }}
+    }}
+}}
+interfaces {{
+    ge-0/0/0 {{
+        unit 0 {{
+            family inet {{
+                dhcp;
+            }}
+        }}
+    }}
+    fxp0 {{
+        unit 0 {{
+            family inet {{
+                dhcp;
+            }}
+        }}
+    }}
+}}
+	  '''.format(**data)
+
     return config
