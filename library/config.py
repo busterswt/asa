@@ -23,6 +23,13 @@ def generate_asa_config(ha,data):
 
     return config
 
+def generate_asa_nat_config(data):
+    nat_config = '''
+        ! Begin NAT configuration
+        ! At this time, only dynamic NAT is supported
+        nat (inside,outside) after-auto source dynamic any interface
+    '''.format(**data)
+
 def generate_standalone_interface_config(data):
     standalone_config = '''
         ! Begin interface configuration.
@@ -626,7 +633,21 @@ def generate_f5_config(ha,_lb_configuration):
     # (todo) implement base key injection
     # (todo) implement ha configuration
 
-    # Generate the base configuration
+    # Determine the addresses and config to use based on device (primary/secondary)
+    if _lb_configuration['priority'] is 'primary':
+	external_address = _lb_configuration['lb_outside_primary_address']
+	internal_address = _lb_configuration['lb_inside_primary_address']
+	
+	if ha:
+	    failover_address = _lb_configuration['lb_failover_primary_address']
+
+    elif _lb_configuration['priority'] is 'secondary':
+	external_address = _lb_configuration['lb_outside_secondary_address']
+        internal_address = _lb_configuration['lb_inside_secondary_address']
+	failover_address = _lb_configuration['lb_failover_secondary_address']
+
+    ###################################
+    # Generate the base configuration #
     config = {}
     config['bigip'] = {}
     config['bigip']['ssh_key_inject'] = 'false'
@@ -648,12 +669,12 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['network']['interfaces']['1.1'] = {}
     config['bigip']['network']['interfaces']['1.1']['dhcp'] = 'false'
     config['bigip']['network']['interfaces']['1.1']['vlan_name'] = 'EXTERNAL'
-    config['bigip']['network']['interfaces']['1.1']['address'] = _lb_configuration['lb_outside_primary_address']
+    config['bigip']['network']['interfaces']['1.1']['address'] = external_address
     config['bigip']['network']['interfaces']['1.1']['netmask'] = _lb_configuration['lb_outside_mask']
     config['bigip']['network']['interfaces']['1.2'] = {}
     config['bigip']['network']['interfaces']['1.2']['dhcp'] = 'false'
     config['bigip']['network']['interfaces']['1.2']['vlan_name'] = 'INTERNAL'
-    config['bigip']['network']['interfaces']['1.2']['address'] = _lb_configuration['lb_inside_primary_address']
+    config['bigip']['network']['interfaces']['1.2']['address'] = internal_address
     config['bigip']['network']['interfaces']['1.2']['netmask'] = _lb_configuration['lb_inside_mask']
 
     # Add routes
@@ -665,9 +686,10 @@ def generate_f5_config(ha,_lb_configuration):
 	config['bigip']['network']['interfaces']['1.3'] = {}
 	config['bigip']['network']['interfaces']['1.3']['dhcp'] = 'false'
 	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
-	config['bigip']['network']['interfaces']['1.3']['address'] = _lb_configuration['lb_failover_primary_address']
+	config['bigip']['network']['interfaces']['1.3']['address'] = failover_address
 	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_netmask']
         config['bigip']['network']['interfaces']['1.3']['is_failover'] = 'true'
+        config['bigip']['network']['interfaces']['1.3']['is_sync'] = 'true'
 
     json_config = json.dumps(config)
     print json_config

@@ -64,21 +64,44 @@ def add_address_pair(port_id,ip_address,mac_address=None):
     response = neutron.update_port(port_id, req)    
 #    return response["port"]["allowed_address_pairs"]    
 
-def create_port(network_id,hostname,port_security_enabled=False):
+def create_port(network_id,hostname,port_security_enabled=False,ip_address=None):
 
     port_name = hostname + "_" + network_id[:11]
-    body_value = {
-        "port": {
-            "admin_state_up": True,
-            "name": port_name,
-            "network_id": network_id,
-	    "port_security_enabled": port_security_enabled
-         }
-    }
 
-    response = neutron.create_port(body=body_value)
-    #print json.dumps(response, sort_keys=True, indent=4) // Debug Example
+    port = {}
+    port["port"] = {}
+    port["port"]["admin_state_up"] = 'True'
+    port["port"]["name"] = port_name
+    port["port"]["network_id"] = network_id
+    port["port"]["port_security_enabled"] = port_security_enabled
 
+    if ip_address is not None:
+	port['port']['fixed_ips'] = {}
+	port['port']['fixed_ips']['ip_address'] = ip_address
+
+    print port
+
+    response = neutron.create_port(body=port)
+    return response["port"]["id"]
+
+def create_port_with_address(network_id,hostname,port_security_enabled=False,subnet_id=None,ip_address=None):
+
+    port_name = hostname + "_" + network_id[:11]
+
+    port = {}
+    port["port"] = {}
+    port["port"]["admin_state_up"] = 'True'
+    port["port"]["name"] = port_name
+    port["port"]["network_id"] = network_id
+    port["port"]["port_security_enabled"] = port_security_enabled
+
+    if ip_address is not None:
+        port['port']['fixed_ips'] = []
+	port['port']['fixed_ips'].append({'subnet_id':subnet_id,'ip_address':ip_address})
+
+    print port
+
+    response = neutron.create_port(body=port)
     return response["port"]["id"]
 
 def get_fixedip_from_port(port_id):
