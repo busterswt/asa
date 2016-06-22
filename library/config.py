@@ -638,7 +638,7 @@ def generate_f5_config(ha,_lb_configuration):
     config['bigip']['system_cmds'] = []
     config['bigip']['system_cmds'].append('touch /tmp/openstack-moonshine')
     config['bigip']['system_cmds'].append('uname -r >> /tmp/openstack-moonshine')
-    config['bigip']['system_cmds'].append('tmsh modify /sys sshd banner enabled banner-text "System auto-configured by NFV. Unauthorized access is prohibited!"')
+    config['bigip']['system_cmds'].append('tmsh modify /sys sshd banner enabled banner-text "System auto-configured by Moonshine. Unauthorized access is prohibited!"')
     # Additional commands must be appended like those above
 
     # Configure network settings
