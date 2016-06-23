@@ -8,6 +8,57 @@ def random_server_name():
     
     return name
 
+def boot_instance(name,image,flavor,az,**kwargs):
+    """
+    :param name: name to be given to instance
+    :param image: image to be used to boot an instance
+    :param flavor: flavor to be used to boot an instance
+    :param az: availability zone to land in
+    :param kwargs: Optional additional arguments for server creation
+    """
+
+    # Define optional server arguments
+    server_args = {}
+
+    # Check to see if ports have been passed during boot
+    # Ports are passed in a specific order based on the server
+    if kwargs.get('ports') is not None:
+        print kwargs.get('ports')
+        server_args['nics'] = []
+        for port in kwargs.get('ports'):
+            for portname,portid in port.items():
+		server_args['nics'].append({'port-id':portid})
+
+    # Check to see if networks have been passed during boot
+    # (todo) ensure this doesn't overwrite ports in the dict already
+    if kwargs.get('networks') is not None:
+	server_args['nics'] = []
+        for networkid in kwargs.get('networks'):
+            server_args['nics'].append({'net-id':networkid})
+
+    # Check to see if config-drive is enabled
+    if kwargs.get('config_drive') is not None:
+	server_args['config_drive'] = kwargs.get('config_drive') # Otherwise, use Nova default
+
+    # Check to see if userdata has been passed
+    if kwargs.get('userdata') is not None:
+	server_args['userdata'] = kwargs.get('userdata')
+
+    # Check to see if file has been injected
+    # (todo) support multiple injected files
+    if kwargs.get('file_path') is not None:
+	server_args['files'] = {'path':kwargs.get('file_path'),
+				"contents":kwargs.get('file_contents')}
+    print server_args
+
+    server = nova.servers.create(name=name,
+		                image=image,
+                		flavor=flavor,
+		                availability_zone=az,
+				**server_args)
+
+    return server
+
 def boot_server(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
 
     # Convert ports to a list of dictionaries

@@ -224,7 +224,7 @@ def build_fw_configuration(hostname,project_name,user_name,ha=False):
 
     return _fw_configuration
 
-def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
+def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
 
     # Boot the primary ASA
     print "Launching primary firewall..."
@@ -253,7 +253,10 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
         ports.append({'inside':_ports['fw_inside_primary_port_id']})
 
     az = "ZONE-A"
-    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az,file_path)
+#    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az,file_path)
+    primary_fw = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive='True',
+					ports=ports,file_contents=primary_config,az=az,file_path=file_path)
+
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary firewall %s to go ACTIVE..." % primary_fw.id
@@ -293,7 +296,9 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,fw_image,fw_flavor):
         ports.append({'failover':_ports['fw_failover_secondary_port_id']})
 
 	az = 'ZONE-B'
-        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az,file_path) 
+#        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az,file_path) 
+	secondary_fw = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive='True',
+                                        ports=ports,file_contents=secondary_config,az=az,file_path=file_path)
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on

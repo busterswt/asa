@@ -1,9 +1,8 @@
 import requests, json, sys
-#from neutronclient.v2_0 import client
-#from credentials import get_credentials
 from clients import neutron
 
 def create_network(network_name,**kwargs):
+    # Creates a network and returns the object
     
     network = {}
     network["network"] = {}
@@ -19,6 +18,8 @@ def create_network(network_name,**kwargs):
     return neutron.create_network(body=network)
 
 def get_segment_id_from_network(network_id):
+    # Given a network id, returns the segmentation id
+  
     network_details = neutron.show_network(network_id)
     segmentation_id = network_details["network"]["provider:segmentation_id"]
     network_type = network_details["network"]["provider:network_type"]
@@ -29,6 +30,7 @@ def get_segment_id_from_network(network_id):
     return segmentation_id
 
 def create_subnet(network_id,cidr,**kwargs):
+    # Creates a subnet and returns the subnet id
 
     subnet = {}
     subnet['subnet'] = {}
@@ -76,7 +78,7 @@ def add_address_pair(port_id,ip_address,mac_address=None):
     response = neutron.update_port(port_id, req)    
 
 def create_port(network_id,hostname,**kwargs):
-    # Creates a port and returns the port ID
+    # Creates a port and returns the port id
 
     port_name = hostname + "-" + network_id[:11]
 
@@ -140,5 +142,4 @@ def get_netmask_from_subnet(subnet_id):
 
     # Print information, mapping integer lists to strings for easy printing
     subnet_mask = ".".join(map(str, mask))
-#    print "Netmask:   " , ".".join(map(str, mask))    
     return subnet_mask
