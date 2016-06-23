@@ -30,7 +30,7 @@ def create_fw_networks(hostname,ha,lb):
     # Create INSIDE (or transit) network
     if lb is not None:
 	_networks['fw_inside_network_name'] = hostname + "-FW-LB"
-	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vxlan")
+	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'])
 	dhcp=False
 	inside_cidr = "192.168.254.0/24" # (todo) Allow this to be set on CLI
 	_networks['fw_inside_net_addr'] = "192.168.254.0" # (todo) make this discoverable
@@ -38,7 +38,8 @@ def create_fw_networks(hostname,ha,lb):
 	_networks['fw_inside_gateway'] = "192.168.254.1" # This needs to be set based on the primary IP of the FW. Which means we need to ask for this addr when creating the port!
     else:
 	_networks['fw_inside_network_name'] = hostname + "-FW-INSIDE"
-	fw_inside_network = neutronlib.create_network(_networks['fw_inside_network_name'],network_type="vlan")	
+	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'],
+						network_type="vlan")	
 	dhcp=True
 	inside_cidr = "192.168.100.0/28"
         _networks['fw_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
@@ -47,16 +48,19 @@ def create_fw_networks(hostname,ha,lb):
 
     _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
     _networks['fw_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(fw_inside_network["network"]["id"])
-    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(_networks['fw_inside_network_id'],inside_cidr,_networks['fw_inside_gateway'],dhcp=dhcp)
-
+    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_inside_network_id'],
+							cidr=inside_cidr,
+							gateway=_networks['fw_inside_gateway'],
+							enable_dhcp=dhcp)
 
     # Create FAILOVER network if highly-available
     if ha:
 	_networks['fw_failover_network_name'] = hostname + "-FW-FAILOVER"
-	fw_failover_network = neutronlib.create_network(_networks['fw_failover_network_name'],network_type="vxlan")
+	fw_failover_network = neutronlib.create_network(network_name=_networks['fw_failover_network_name'])
 	_networks['fw_failover_network_id'] = fw_failover_network["network"]["id"]
 	failover_cidr = "192.168.255.0/28"
-	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(_networks['fw_failover_network_id'],failover_cidr,None)
+	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_failover_network_id'],
+								cidr=failover_cidr)
     else:
 	_networks['fw_failover_network_name'] = None
 	fw_failover_network = None # (todo) verify if this is necessary
@@ -68,7 +72,8 @@ def create_lb_networks(hostname,ha,_networks):
     
     # Create INSIDE network (where servers live)
     _networks['lb_inside_network_name'] = hostname + "-LB-INSIDE"
-    lb_inside_network = neutronlib.create_network(_networks['lb_inside_network_name'],network_type="vlan")
+    lb_inside_network = neutronlib.create_network(network_name=_networks['lb_inside_network_name'],
+						network_type="vlan")
     dhcp=True
     inside_cidr = "192.168.100.0/24"
     _networks['lb_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
@@ -76,17 +81,21 @@ def create_lb_networks(hostname,ha,_networks):
     _networks['lb_inside_gateway'] = "192.168.100.1"
 
     _networks['lb_inside_network_id'] = lb_inside_network["network"]["id"]
-    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(_networks['lb_inside_network_id'],inside_cidr,_networks['lb_inside_gateway'],dhcp=dhcp)
+    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_inside_network_id'],
+							cidr=inside_cidr,
+							gateway=_networks['lb_inside_gateway'],
+							enable_dhcp=dhcp)
     _networks['lb_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(lb_inside_network["network"]["id"])
 
     # Create FAILOVER network if highly-available
     if ha:
         _networks['lb_failover_network_name'] = hostname + "-LB-FAILOVER"
-        lb_failover_network = neutronlib.create_network(_networks['lb_failover_network_name'],network_type="vxlan")
+        lb_failover_network = neutronlib.create_network(network_name=_networks['lb_failover_network_name'])
 	dhcp=False
         _networks['lb_failover_network_id'] = lb_failover_network["network"]["id"]
         failover_cidr = "192.168.255.16/28"
-        _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(_networks['lb_failover_network_id'],failover_cidr,None)
+        _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_failover_network_id'],
+								cidr=failover_cidr)
     else:
         _networks['lb_failover_network_name'] = None
         lb_failover_network = None # (todo) verify if this is necessary
@@ -100,18 +109,26 @@ def create_fw_ports(hostname,_networks):
     try:
         # Create ports
         _ports = {}
-        _ports['fw_mgmt_primary_port_id'] = neutronlib.create_port(management_network_id,hostname+"-FW-PRI-MGMT",port_security_enabled=False)
-        _ports['fw_outside_primary_port_id'] = neutronlib.create_port(outside_network_id,hostname+"-FW-PRI-OUTSIDE",port_security_enabled=False)
-        _ports['fw_inside_primary_port_id'] = neutronlib.create_port_with_address(_networks['fw_inside_network_id'],hostname+"-FW-PRI-INSIDE",
-					port_security_enabled=False,subnet_id=_networks['fw_inside_subnet_id'],ip_address=_networks['fw_inside_gateway'])
+        _ports['fw_mgmt_primary_port_id'] = neutronlib.create_port(network_id=management_network_id,
+								hostname=hostname+"-FW-PRI-MGMT")
+        _ports['fw_outside_primary_port_id'] = neutronlib.create_port(network_id=outside_network_id,
+								hostname=hostname+"-FW-PRI-OUTSIDE")
+        _ports['fw_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
+								hostname=hostname+"-FW-PRI-INSIDE",
+								subnet_id=_networks['fw_inside_subnet_id'],
+								ip_address=_networks['fw_inside_gateway'])
 
         # If HA, create a failover port and secondary unit ports
         if _networks['fw_failover_network_name'] is not None:
-	    _ports['fw_failover_primary_port_id'] = neutronlib.create_port(_networks['fw_failover_network_id'],hostname+"-FW-PRI-FAILOVER",port_security_enabled=False)
-	    _ports['fw_failover_secondary_port_id'] = neutronlib.create_port(_networks['fw_failover_network_id'],hostname+"-FW-SEC-FAILOVER",port_security_enabled=False)
-	    _ports['fw_mgmt_secondary_port_id'] = neutronlib.create_port(management_network_id,hostname+"-FW-SEC-MGMT",port_security_enabled=False)
-	    _ports['fw_outside_secondary_port_id'] = neutronlib.create_port(outside_network_id,hostname+"-FW-SEC-OUTSIDE",port_security_enabled=False)
-	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],hostname+"-FW-SEC-INSIDE",port_security_enabled=False)
+	    _ports['fw_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
+									hostname=hostname+"-FW-PRI-FAILOVER")
+	    _ports['fw_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
+									hostname=hostname+"-FW-SEC-FAILOVER")
+	    _ports['fw_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=management_network_id,
+									hostname=hostname+"-FW-SEC-MGMT")
+	    _ports['fw_outside_secondary_port_id'] = neutronlib.create_port(network_id=outside_network_id,
+									hostname=hostname+"-FW-SEC-OUTSIDE")
+	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],hostname=hostname+"-FW-SEC-INSIDE")
     except Exception, e:
 	print "Error creating virtual ports. Rolling back port creation! %s" % e
 	# (todo) implement rollback then exit
@@ -124,20 +141,29 @@ def create_lb_ports(hostname,_networks,_ports):
 
     try:
         # Create ports
-        _ports['lb_mgmt_primary_port_id'] = neutronlib.create_port(management_network_id,hostname+"-LB-PRI-MGMT",port_security_enabled=False)
-        _ports['lb_outside_primary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],hostname+"-LB-PRI-EXTERNAL",port_security_enabled=False)
-        _ports['lb_inside_primary_port_id'] = neutronlib.create_port(_networks['lb_inside_network_id'],hostname+"-LB-PRI-INTERNAL",port_security_enabled=False)
+        _ports['lb_mgmt_primary_port_id'] = neutronlib.create_port(network_id=management_network_id,
+								hostname=hostname+"-LB-PRI-MGMT")
+        _ports['lb_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
+								hostname=hostname+"-LB-PRI-EXTERNAL")
+        _ports['lb_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
+								hostname=hostname+"-LB-PRI-INTERNAL")
 
         # If HA, create a failover port and secondary unit ports
         if _networks['lb_failover_network_name'] is not None:
-            _ports['lb_failover_primary_port_id'] = neutronlib.create_port(_networks['lb_failover_network_id'],hostname+"-LB-PRI-FAILOVER",port_security_enabled=False)
-            _ports['lb_failover_secondary_port_id'] = neutronlib.create_port(_networks['lb_failover_network_id'],hostname+"-LB-SEC-FAILOVER",port_security_enabled=False)
-            _ports['lb_mgmt_secondary_port_id'] = neutronlib.create_port(management_network_id,hostname+"-LB-SEC-MGMT",port_security_enabled=False)
-            _ports['lb_outside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],hostname+"-LB-SEC-EXTERNAL",port_security_enabled=False)
-            _ports['lb_inside_secondary_port_id'] = neutronlib.create_port(_networks['lb_inside_network_id'],hostname+"-LB-SEC-INTERNAL",port_security_enabled=False)
+            _ports['lb_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
+								hostname=hostname+"-LB-PRI-FAILOVER")
+            _ports['lb_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
+								hostname=hostname+"-LB-SEC-FAILOVER")
+            _ports['lb_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=management_network_id,
+								hostname=hostname+"-LB-SEC-MGMT")
+            _ports['lb_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
+								hostname=hostname+"-LB-SEC-EXTERNAL")
+            _ports['lb_inside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
+								hostname=hostname+"-LB-SEC-INTERNAL")
     except Exception, e:
         print "Error creating virtual ports. Rolling back port creation! %s" % e
         # (todo) implement rollback then exit
+	sys.exit(1)
         
     return _ports # Return the ports. They will be used to generate the configuration.
 
