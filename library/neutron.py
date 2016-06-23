@@ -3,38 +3,60 @@ import requests, json, sys
 #from credentials import get_credentials
 from clients import neutron
 
-def create_network(name,network_type="vxlan"):
+def create_network(network_name,**kwargs):
     
-    body_value = {
-        "network": {
-            "name": name,
-            "admin_state_up": True,
-            "provider:network_type": network_type
-        }
-    }
+    network = {}
+    network["network"] = {}
+    network["network"]["name"] = network_name
+    network["network"]["admin_state_up"] = 'True'
+    
+    # Set the network type {vxlan,vlan}
+    if kwargs.get('network_type') is not None:
+	network["network"]['provider:network_type'] = kwargs.get('network_type')
+    else:
+	network["network"]['provider:network_type'] = 'vxlan' # Default to vxlan if type isn't specified
 
-#    response = neutron.create_network(body=body_value)
-#    return response["network"]["id"]
-    return neutron.create_network(body=body_value)
+    return neutron.create_network(body=network)
 
-def create_subnet(network_id,cidr):
+def get_segment_id_from_network(network_id):
+    network_details = neutron.show_network(network_id)
+    segmentation_id = network_details["network"]["provider:segmentation_id"]
+    network_type = network_details["network"]["provider:network_type"]
 
-    body_value = {
-        "subnet": {
-            "network_id": network_id,
-            "cidr": cidr,
-            "ip_version": "4",
-            "enable_dhcp": False,
-            "gateway_ip": None
-        }
-    }
+    if network_type != "vlan":
+	segmentation_id = "N/A"
 
-    response = neutron.create_subnet(body=body_value)
-    return response["subnet"]["id"]
+    return segmentation_id
+
+def create_subnet(network_id,cidr,**kwargs):
+
+    subnet = {}
+    subnet['subnet'] = {}
+    subnet['subnet']['network_id'] = network_id
+    subnet['subnet']['cidr'] = cidr
+
+    # Specify IP version
+    if kwargs.get('ip_version') is not None:
+	subnet['subnet']['ip_version'] = kwargs.get('ip_version')
+    else:
+	subnet['subnet']['ip_version'] = '4' # Default to IPv4 if not specified 	
+
+    # Specify gateway address for subnet
+    if kwargs.get('gateway_ip') is not None:
+        subnet['subnet']['gateway_ip'] = kwargs.get('gateway_ip')
+
+    # Enable/Disable DHCP for subnet
+    if kwargs.get('enable_dhcp') is not None:
+        subnet['subnet']['enable_dhcp'] = kwargs.get('enable_dhcp')
+    else:
+        subnet['subnet']['enable_dhcp'] = 'False' # Default to False if not specified
+
+    response = neutron.create_subnet(body=subnet)
+    return response['subnet']['id']
 
 def add_address_pair(port_id,ip_address,mac_address=None):
-    
-#    print port_id,ip_address,mac_address
+    # This function is UNUSED at this time (but works)
+    # Port security is disabled on all ports by default
 
     if mac_address is None:
         mac_address = get_macaddr_from_port(port_id)
@@ -52,31 +74,42 @@ def add_address_pair(port_id,ip_address,mac_address=None):
     }
 
     response = neutron.update_port(port_id, req)    
-#    return response["port"]["allowed_address_pairs"]    
 
-def create_port(network_id,hostname):
+def create_port(network_id,hostname,**kwargs):
+    # Creates a port and returns the port ID
 
-    port_name = hostname + "_" + network_id[:11]
-    body_value = {
-        "port": {
-            "admin_state_up": True,
-            "name": port_name,
-            "network_id": network_id
-         }
-    }
+    port_name = hostname + "-" + network_id[:11]
 
-    response = neutron.create_port(body=body_value)
-    #print json.dumps(response, sort_keys=True, indent=4) // Debug Example
+    port = {}
+    port["port"] = {}
+    port["port"]["admin_state_up"] = 'True'
+    port["port"]["name"] = port_name
+    port["port"]["network_id"] = network_id
 
+    # Set port security true/false if specified. Otherwise use to Neutron default.
+    if kwargs.get('port_security_enabled') is not None:
+        port["port"]["port_security_enabled"] = kwargs.get('port_security_enabled')
+
+    # Manually set IP of port
+    if kwargs.get('ip_address') is not None:
+        port["port"]["fixed_ips"] = []
+        port["port"]["fixed_ips"].append({'subnet_id':kwargs.get('subnet_id'),
+					'ip_address':kwargs.get('ip_address')})
+
+    response = neutron.create_port(body=port)
     return response["port"]["id"]
 
 def get_fixedip_from_port(port_id):
+    # Returns the (first) fixed IP of a port
+
     port_details = neutron.show_port(port_id)
     fixed_ip = port_details["port"]["fixed_ips"][0]["ip_address"]
 
     return fixed_ip
 
 def get_macaddr_from_port(port_id):
+    # Returns the MAC address of a port
+
     port_details = neutron.show_port(port_id)
     mac_addr = port_details["port"]["mac_address"]
 
