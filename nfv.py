@@ -110,25 +110,34 @@ def create_fw_ports(hostname,_networks):
         # Create ports
         _ports = {}
         _ports['fw_mgmt_primary_port_id'] = neutronlib.create_port(network_id=management_network_id,
-								hostname=hostname+"-FW-PRI-MGMT")
+								hostname=hostname+"-FW-PRI-MGMT",
+								port_security_enabled='False')
         _ports['fw_outside_primary_port_id'] = neutronlib.create_port(network_id=outside_network_id,
-								hostname=hostname+"-FW-PRI-OUTSIDE")
+								hostname=hostname+"-FW-PRI-OUTSIDE",
+								port_security_enabled='False')
         _ports['fw_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
 								hostname=hostname+"-FW-PRI-INSIDE",
 								subnet_id=_networks['fw_inside_subnet_id'],
-								ip_address=_networks['fw_inside_gateway'])
+								ip_address=_networks['fw_inside_gateway'],
+								port_security_enabled='False')
 
         # If HA, create a failover port and secondary unit ports
         if _networks['fw_failover_network_name'] is not None:
 	    _ports['fw_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
-									hostname=hostname+"-FW-PRI-FAILOVER")
+									hostname=hostname+"-FW-PRI-FAILOVER",
+									port_security_enabled='False')
 	    _ports['fw_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
-									hostname=hostname+"-FW-SEC-FAILOVER")
+									hostname=hostname+"-FW-SEC-FAILOVER",
+									port_security_enabled='False')
 	    _ports['fw_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=management_network_id,
-									hostname=hostname+"-FW-SEC-MGMT")
+									hostname=hostname+"-FW-SEC-MGMT",
+									port_security_enabled='False')
 	    _ports['fw_outside_secondary_port_id'] = neutronlib.create_port(network_id=outside_network_id,
-									hostname=hostname+"-FW-SEC-OUTSIDE")
-	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],hostname=hostname+"-FW-SEC-INSIDE")
+									hostname=hostname+"-FW-SEC-OUTSIDE",
+									port_security_enabled='False')
+	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],
+									hostname=hostname+"-FW-SEC-INSIDE",
+									port_security_enabled='False')
     except Exception, e:
 	print "Error creating virtual ports. Rolling back port creation! %s" % e
 	# (todo) implement rollback then exit
@@ -142,24 +151,32 @@ def create_lb_ports(hostname,_networks,_ports):
     try:
         # Create ports
         _ports['lb_mgmt_primary_port_id'] = neutronlib.create_port(network_id=management_network_id,
-								hostname=hostname+"-LB-PRI-MGMT")
+								hostname=hostname+"-LB-PRI-MGMT",
+								port_security_enabled='False')
         _ports['lb_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
-								hostname=hostname+"-LB-PRI-EXTERNAL")
+								hostname=hostname+"-LB-PRI-EXTERNAL",
+								port_security_enabled='False')
         _ports['lb_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
-								hostname=hostname+"-LB-PRI-INTERNAL")
+								hostname=hostname+"-LB-PRI-INTERNAL",
+								port_security_enabled='False')
 
         # If HA, create a failover port and secondary unit ports
         if _networks['lb_failover_network_name'] is not None:
             _ports['lb_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
-								hostname=hostname+"-LB-PRI-FAILOVER")
+								hostname=hostname+"-LB-PRI-FAILOVER",
+								port_security_enabled='False')
             _ports['lb_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
-								hostname=hostname+"-LB-SEC-FAILOVER")
+								hostname=hostname+"-LB-SEC-FAILOVER",
+								port_security_enabled='False')
             _ports['lb_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=management_network_id,
-								hostname=hostname+"-LB-SEC-MGMT")
+								hostname=hostname+"-LB-SEC-MGMT",
+								port_security_enabled='False')
             _ports['lb_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
-								hostname=hostname+"-LB-SEC-EXTERNAL")
+								hostname=hostname+"-LB-SEC-EXTERNAL",
+								port_security_enabled='False')
             _ports['lb_inside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
-								hostname=hostname+"-LB-SEC-INTERNAL")
+								hostname=hostname+"-LB-SEC-INTERNAL",
+								port_security_enabled='False')
     except Exception, e:
         print "Error creating virtual ports. Rolling back port creation! %s" % e
         # (todo) implement rollback then exit
@@ -346,7 +363,7 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
 	details.add_row(["Secondary Console:",novalib.get_console(secondary_fw)])
     print details
 
-def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
+def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 
     # Boot the primary load balancer
     print "\nLaunching primary load balancer..."
@@ -372,8 +389,11 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
 	ports.append({'outside':_ports['lb_outside_primary_port_id']})
 	ports.append({'inside':_ports['lb_inside_primary_port_id']})
 
-    primary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
-    
+#    primary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
+    az = 'ZONE-A'
+    primary_lb = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+                                        ports=ports,userdata=primary_config,az=az)
+
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
     status = novalib.check_status(primary_lb.id)
@@ -409,8 +429,12 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,lb_image,lb_flavor):
         ports.append({'inside':_ports['lb_inside_secondary_port_id']})
         ports.append({'failover':_ports['lb_failover_secondary_port_id']})
 
-        secondary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
-  
+#        secondary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
+ 
+        az = 'ZONE-B'
+        secondary_lb = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+                                        ports=ports,userdata=secondary_config,az=az) 
+
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
         print "Waiting for secondary load balancer %s to go ACTIVE..." % secondary_lb.id

@@ -158,7 +158,7 @@ def generate_base_config(data):
         service-policy global_policy global        
 
         ! User configuration
-        username jdenton password openstack12345 privilege 15
+        username moonshine password openstack12345 privilege 15
           '''.format(**data)
 
     return textwrap.dedent(base_config)
