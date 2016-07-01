@@ -77,6 +77,6 @@ except:
 
 # Instantiate Nova client
 try:
-    nova = novaclient.Client(2,session=sess)
+    nova = novaclient.Client(2.5,session=sess)
 except:
     print "Error: Unable to instantiate a Nova client!"

@@ -1,4 +1,3 @@
-import json
 from clients import nova
 import random, time
 from inspect import getmembers
@@ -22,19 +21,24 @@ def find_instances(**kwargs):
     
     # Search for environment number in metadata
     if kwargs.get('env') is not None:
-	search_opts['metadata'] = '{"env": "%s"}' % kwargs.get('env')
+	search_opts['metadata']["env"] = {}
+	search_opts['metadata']["env"] = kwargs.get('env')
     # Search for account number in metadata
     if kwargs.get('account') is not None:
-	search_opts['metadata'] = '{"account": "%s"}' % kwargs.get('account')
+	search_opts['metadata']['account'] = {}
+        search_opts['metadata']['account'] = kwargs.get('account')
     # Search for device number
     if kwargs.get('device') is not None:
-        search_opts['metadata'] = '{"account": "%s"}' % kwargs.get('device')
+	search_opts['metadata']['device'] = {}
+        search_opts['metadata']['device'] = kwargs.get('device')
     # Search for HA devices (true/false?)
     if kwargs.get('ha') is not None:
-        search_opts['metadata']['ha'] = '{"ha": "%s"}' % kwargs.get('ha')
+	search_opts['metadata']['ha'] = {}
+        search_opts['metadata']['ha'] = kwargs.get('ha')
     # Search for peer ID
     if kwargs.get('peer') is not None:
-        search_opts['metadata']['peer'] = '{"peer": "%s"}' % kwargs.get('peer')
+	search_opts['metadata']['peer'] = {}
+        search_opts['metadata']['peer'] = kwargs.get('peer')
 
     print search_opts
 #    search_opts = {'metadata': '{"env": "ENV12345"}','all_tenants': 1}
@@ -58,6 +62,7 @@ def boot_instance(name,image,flavor,az,**kwargs):
     # Check to see if ports have been passed during boot
     # Ports are passed in a specific order based on the server
     if kwargs.get('ports') is not None:
+#        print kwargs.get('ports')
         server_args['nics'] = []
         for port in kwargs.get('ports'):
             for portname,portid in port.items():
@@ -83,10 +88,7 @@ def boot_instance(name,image,flavor,az,**kwargs):
     if kwargs.get('file_path') is not None:
 	server_args['files'] = {'path':kwargs.get('file_path'),
 				"contents":kwargs.get('file_contents')}
-
-    # Check to see if metadata has been injected
-    if kwargs.get('meta') is not None:
-        server_args['meta'] = kwargs.get('meta')
+    print server_args
 
     server = nova.servers.create(name=name,
 		                image=image,
