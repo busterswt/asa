@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import requests, json, sys
 import argparse, time
 from prettytable import PrettyTable
@@ -25,7 +27,6 @@ def create_project():
         keystone_project = keystonelib.create_project(_metadata['account_number'])
         password = keystonelib.generate_password(10)
         keystone_user = keystonelib.create_user(_metadata['account_number'],keystone_project.id,password)
-	#_metadata.update({"env": keystonelib.generate_random_environment()})
     except Exception, e:
 	print "Unable to create project and user in Keystone. Rolling back! %s" % e
 	# (todo) rollback and exit gracefully

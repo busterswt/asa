@@ -22,21 +22,22 @@ def find_instances(**kwargs):
     
     # Search for environment number in metadata
     if kwargs.get('env') is not None:
+	search_opts['metadata']['env'] = kwargs.get('env')
 #	search_opts['metadata'] = '{"env": "%s"}' % kwargs.get('env')
-        search_opts['metadata'].update({"env": kwargs.get('env')})
+#        search_opts['metadata'].update({"env": kwargs.get('env')})
     # Search for account number in metadata
     if kwargs.get('account_number') is not None:
 #	search_opts['metadata'] = '{"account_number": "%s"}' % kwargs.get('account_number')
 	search_opts['metadata'].update({"account_number": kwargs.get('account_number')})
     # Search for device number
     if kwargs.get('device') is not None:
-        search_opts['metadata'] = '{"device": "%s"}' % kwargs.get('device')
+        search_opts['metadata'].update({"device": kwargs.get('device')})
     # Search for HA devices (true/false?)
     if kwargs.get('ha') is not None:
-        search_opts['metadata']['ha'] = '{"ha": "%s"}' % kwargs.get('ha')
+        search_opts['metadata'] = '{"ha": "%s"}' % kwargs.get('ha')
     # Search for peer ID
     if kwargs.get('peer') is not None:
-        search_opts['metadata']['peer'] = '{"peer": "%s"}' % kwargs.get('peer')
+        search_opts['metadata'] = '{"peer": "%s"}' % kwargs.get('peer')
 
 
     # (note) The metadata value must be enclosed 
