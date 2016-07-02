@@ -25,7 +25,7 @@ def create_project():
         keystone_project = keystonelib.create_project(_metadata['account_number'])
         password = keystonelib.generate_password(10)
         keystone_user = keystonelib.create_user(_metadata['account_number'],keystone_project.id,password)
-	_metadata.update({"env": keystonelib.generate_random_environment()})
+	#_metadata.update({"env": keystonelib.generate_random_environment()})
     except Exception, e:
 	print "Unable to create project and user in Keystone. Rolling back! %s" % e
 	# (todo) rollback and exit gracefully
@@ -569,6 +569,7 @@ def create(args):
     # Launch the device(s)
     _metadata['hostname'] = novalib.random_server_name()
     keystone_project,keystone_user = create_project()
+    _metadata['env'] = args.env
 
     # Create networks
     _networks = create_fw_networks(args.ha,args.lb)
@@ -609,11 +610,11 @@ if __name__ == "__main__":
     # A find command
     find_parser = subparsers.add_parser('find', help='Find devices')    
     find_parser.add_argument('--env', action='store', dest='env', help='Find server based on environment number', required=False)
-    find_parser.add_argument('--account', action='store', dest='account', help='Find server based on account number', required=False)
+    find_parser.add_argument('--account', action='store', dest='account_number', help='Find server based on account number', required=False)
 
     # A create command
     create_parser = subparsers.add_parser('create', help='Create device(s)')
-    create_parser.add_argument('--env', dest='create_dev_env', help='Specify DCX environment number', required=True)
+    create_parser.add_argument('--env', dest='env', help='Specify DCX environment number', required=True)
     create_parser.add_argument('--fw', dest='fw', help='Specify firewall type', 
 				choices=['asav5', 'asav10', 'asav30','vsrx'], required=False)
     create_parser.add_argument('--lb', dest='lb', help='Specify load balancer type', 
@@ -626,7 +627,7 @@ if __name__ == "__main__":
 
     # Array for all arguments passed to script
     args = parser.parse_args()
-    print args.command
+#    print args.command
 
     # Validate that there is an image and flavor for each specified option
     # (todo) build validator
@@ -635,7 +636,10 @@ if __name__ == "__main__":
     # First up, the FIND parser
     try:
         if args.command == 'find':
-            print novalib.find_instances(env=args.env)
+	    keys = vars(args)
+	    keys.pop('command') # Remove the command arg. Only send the legit ones.
+	    print keys
+            print novalib.find_instances(**keys)
             sys.exit(1)
     except Exception, e:
 	print "Oops! Unable to find: %s" % e
@@ -647,7 +651,7 @@ if __name__ == "__main__":
 	if args.command == 'create':
 	    # (todo) Tie environments into Keystone tenants.
 	    # Check for tenant/project before proceeding. Maybe notify user?
-	    print "Creating devices for environment %s" % args.create_dev_env
+	    print "Creating devices for environment %s" % args.env
 	    create(args)
     except Exception, e:
 	print "Oops! Unable to create! %s" % e

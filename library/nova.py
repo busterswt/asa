@@ -14,7 +14,7 @@ def random_server_name():
 def find_instances(**kwargs):
     """
     :param kwargs: Optional additional arguments for finding instances
-	Current: env,account,device,ha,peer
+	Current: env,account_number,device,ha,peer
     """
     search_opts = {}
     search_opts['all_tenants'] = '1'
@@ -22,13 +22,15 @@ def find_instances(**kwargs):
     
     # Search for environment number in metadata
     if kwargs.get('env') is not None:
-	search_opts['metadata'] = '{"env": "%s"}' % kwargs.get('env')
+#	search_opts['metadata'] = '{"env": "%s"}' % kwargs.get('env')
+        search_opts['metadata'].update({"env": kwargs.get('env')})
     # Search for account number in metadata
-    if kwargs.get('account') is not None:
-	search_opts['metadata'] = '{"account": "%s"}' % kwargs.get('account')
+    if kwargs.get('account_number') is not None:
+#	search_opts['metadata'] = '{"account_number": "%s"}' % kwargs.get('account_number')
+	search_opts['metadata'].update({"account_number": kwargs.get('account_number')})
     # Search for device number
     if kwargs.get('device') is not None:
-        search_opts['metadata'] = '{"account": "%s"}' % kwargs.get('device')
+        search_opts['metadata'] = '{"device": "%s"}' % kwargs.get('device')
     # Search for HA devices (true/false?)
     if kwargs.get('ha') is not None:
         search_opts['metadata']['ha'] = '{"ha": "%s"}' % kwargs.get('ha')
@@ -36,8 +38,13 @@ def find_instances(**kwargs):
     if kwargs.get('peer') is not None:
         search_opts['metadata']['peer'] = '{"peer": "%s"}' % kwargs.get('peer')
 
+
+    # (note) The metadata value must be enclosed 
+    # in quotes or it won't search
+    strMetadata = json.dumps(search_opts['metadata'])
+    search_opts['metadata'] = '%s' % strMetadata
+#    search_opts = {'metadata': '{"env": "ENV703871"}','all_tenants': 1}
     print search_opts
-#    search_opts = {'metadata': '{"env": "ENV12345"}','all_tenants': 1}
     servers = nova.servers.list(search_opts=search_opts)
     for server in servers:
         print server.name,server.metadata
