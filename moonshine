@@ -10,37 +10,31 @@ import library.keystone as keystonelib
 from library.printf import printf
 
 # Initialize global variables that will be used throughout
-# Q: Best practice? Not sure.
+# Best practice? Dunno.
 _networks = {}
 _ports = {}
 _metadata = {}
 
 def create_project(account_number):
-    # (todo) Only create project when one doesn't exist for the environment being passed.
-    # Otherwise, bow out gracefully
+    # (todo) Only create project when one doesn't exist for the account number being passed.
+    # All devices associated with account will exist under respective project
     global _metadata
 
     # Check for existance of project
-    if keystonelib.verify_project(account_number):
-	print "Project exists!"
+    os_project = keystonelib.verify_project(account_number)
+    if os_project is not None:
+	print "Associating devices with existing project %s..." % os_project.id
     else:
-	print "project no existy"
+	print "Associating devices with new project..."
+	try:
+	     os_project = keystonelib.create_project(account_number)
+        except Exception, e:
+    	    print "Unable to create project in Keystone! %s" % e
+    	    # (todo) rollback and exit gracefully
 
-    sys.exit(1) #temp
-
-    print "Creating Keystone project and user..."
-
-    try:
-        _metadata.update({"account_number": account_number})
-        os_project = keystonelib.create_project(account_number)
-        password = keystonelib.generate_password(10)
-        keystone_user = keystonelib.create_user(account_number,os_project.id,password)
-    except Exception, e:
-	print "Unable to create project and user in Keystone! %s" % e
-	# (todo) rollback and exit gracefully
-
-    # Return the new project id that will be used when creating resources
-    return os_project,keystone_user
+    _metadata.update({"account_number": account_number})
+    # Return the project that will be used when creating resources
+    return os_project
 
 def create_fw_networks(ha,lb):    
     global _networks
@@ -58,7 +52,8 @@ def create_fw_networks(ha,lb):
     else:
 	_networks['fw_inside_network_name'] = _metadata['hostname'] + "-FW-INSIDE"
 	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'],
-						network_type="vxlan") #temp	
+						network_type="vxlan",
+						tenant_id=os_project.id) # vxlan is temporary	
 	dhcp=True
 	inside_cidr = "192.168.100.0/28"
         _networks['fw_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
@@ -70,16 +65,19 @@ def create_fw_networks(ha,lb):
     _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_inside_network_id'],
 							cidr=inside_cidr,
 							gateway=_networks['fw_inside_gateway'],
-							enable_dhcp=dhcp)
+							enable_dhcp=dhcp,
+							tenant_id=os_project.id)
 
     # Create FAILOVER network if highly-available
     if ha:
 	_networks['fw_failover_network_name'] = _metadata['hostname'] + "-FW-FAILOVER"
-	fw_failover_network = neutronlib.create_network(network_name=_networks['fw_failover_network_name'])
+	fw_failover_network = neutronlib.create_network(network_name=_networks['fw_failover_network_name'],
+						tenant_id=os_project.id)
 	_networks['fw_failover_network_id'] = fw_failover_network["network"]["id"]
 	failover_cidr = "192.168.255.0/28"
 	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_failover_network_id'],
-								cidr=failover_cidr)
+								cidr=failover_cidr,
+								tenant_id=os_project.id)
     else:
 	_networks['fw_failover_network_name'] = None
 	fw_failover_network = None # (todo) verify if this is necessary
@@ -94,7 +92,8 @@ def create_lb_networks(ha):
     # Create INSIDE network (where servers live)
     _networks['lb_inside_network_name'] = _metadata['hostname'] + "-LB-INSIDE"
     lb_inside_network = neutronlib.create_network(network_name=_networks['lb_inside_network_name'],
-						network_type="vxlan") #temp
+						network_type="vxlan",
+						tenant_id=os_project.id) # vxlan is temporary
     dhcp=True
     inside_cidr = "192.168.100.0/24"
     _networks['lb_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
@@ -105,18 +104,21 @@ def create_lb_networks(ha):
     _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_inside_network_id'],
 							cidr=inside_cidr,
 							gateway=_networks['lb_inside_gateway'],
-							enable_dhcp=dhcp)
+							enable_dhcp=dhcp,
+							tenant_id=os_project.id)
     _networks['lb_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(lb_inside_network["network"]["id"])
 
     # Create FAILOVER network if highly-available
     if ha:
         _networks['lb_failover_network_name'] = _metadata['hostname'] + "-LB-FAILOVER"
-        lb_failover_network = neutronlib.create_network(network_name=_networks['lb_failover_network_name'])
+        lb_failover_network = neutronlib.create_network(network_name=_networks['lb_failover_network_name'],
+						tenant_id=os_project.id)
 	dhcp=False
         _networks['lb_failover_network_id'] = lb_failover_network["network"]["id"]
         failover_cidr = "192.168.255.16/28"
         _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_failover_network_id'],
-								cidr=failover_cidr)
+								cidr=failover_cidr,
+								tenant_id=os_project.id)
     else:
         _networks['lb_failover_network_name'] = None
         lb_failover_network = None # (todo) verify if this is necessary
@@ -133,33 +135,46 @@ def create_fw_ports():
         _ports['fw_mgmt_primary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
 								hostname=_metadata['hostname']+"-FW-PRI-MGMT",
 								port_security_enabled='False',
-								description='{"type":"management"}')
+								description='{"type":"management"}',
+								tenant_id=os_project.id)
         _ports['fw_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['netdev_network'],
 								hostname=_metadata['hostname']+"-FW-PRI-OUTSIDE",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"outside"}',
+								tenant_id=os_project.id)
         _ports['fw_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
 								hostname=_metadata['hostname']+"-FW-PRI-INSIDE",
 								subnet_id=_networks['fw_inside_subnet_id'],
 								ip_address=_networks['fw_inside_gateway'],
-								port_security_enabled='False')
+								port_security_enabled='False',
+								tenant_id=os_project.id)
 
         # If HA, create a failover port and secondary unit ports
         if _networks['fw_failover_network_name'] is not None:
 	    _ports['fw_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
 									hostname=_metadata['hostname']+"-FW-PRI-FAILOVER",
-									port_security_enabled='False')
+									port_security_enabled='False',
+									description='{"type":"failover"}',
+									tenant_id=os_project.id)
 	    _ports['fw_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
 									hostname=_metadata['hostname']+"-FW-SEC-FAILOVER",
-									port_security_enabled='False')
+									port_security_enabled='False',
+									description='{"type":"failover"}',
+									tenant_id=os_project.id)
 	    _ports['fw_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
 									hostname=_metadata['hostname']+"-FW-SEC-MGMT",
-									port_security_enabled='False')
+									port_security_enabled='False',
+									description='{"type":"management"}',
+									tenant_id=os_project.id)
 	    _ports['fw_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['netdev_network'],
 									hostname=_metadata['hostname']+"-FW-SEC-OUTSIDE",
-									port_security_enabled='False')
+									port_security_enabled='False',
+									description='{"type":"outside"}',
+									tenant_id=os_project.id)
 	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],
 									hostname=_metadata['hostname']+"-FW-SEC-INSIDE",
-									port_security_enabled='False')
+									port_security_enabled='False',
+									tenant_id=os_project.id)
     except Exception, e:
 	print "Error creating virtual ports. Rolling back port creation! %s" % e
 	# (todo) implement rollback then exit
@@ -176,31 +191,44 @@ def create_lb_ports():
         _ports['lb_mgmt_primary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
 								hostname=_metadata['hostname']+"-LB-PRI-MGMT",
 								port_security_enabled='False',
-								description='{"type":"management"}')
+								description='{"type":"management"}',
+								tenant_id=os_project.id)
         _ports['lb_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
 								hostname=_metadata['hostname']+"-LB-PRI-EXTERNAL",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"outside"}',
+                                                                tenant_id=os_project.id)
         _ports['lb_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
 								hostname=_metadata['hostname']+"-LB-PRI-INTERNAL",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								tenant_id=os_project.id)
 
         # If HA, create a failover port and secondary unit ports
         if _networks['lb_failover_network_name'] is not None:
             _ports['lb_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
 								hostname=_metadata['hostname']+"-LB-PRI-FAILOVER",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"failover"}',
+								tenant_id=os_project.id)
             _ports['lb_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
 								hostname=_metadata['hostname']+"-LB-SEC-FAILOVER",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"failover"}',
+								tenant_id=os_project.id)
             _ports['lb_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
 								hostname=_metadata['hostname']+"-LB-SEC-MGMT",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"management"}',
+								tenant_id=os_project.id)
             _ports['lb_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
 								hostname=_metadata['hostname']+"-LB-SEC-EXTERNAL",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								description='{"type":"outside"}',
+								tenant_id=os_project.id)
             _ports['lb_inside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
 								hostname=_metadata['hostname']+"-LB-SEC-INTERNAL",
-								port_security_enabled='False')
+								port_security_enabled='False',
+								tenant_id=os_project.id)
     except Exception, e:
         print "Error creating virtual ports. Rolling back port creation! %s" % e
         # (todo) implement rollback then exit
@@ -232,7 +260,7 @@ def build_lb_configuration(ha=False):
 
     return _lb_configuration
 
-def build_fw_configuration(project_name,user_name,ha=False):
+def build_fw_configuration(os_project_name,user_name,ha=False):
 
     # Build the configuration that will be pushed to the devices
     _fw_configuration = {}
@@ -257,8 +285,8 @@ def build_fw_configuration(project_name,user_name,ha=False):
 
     # Build an IPSec Client VPN configuration
     # (todo) Build AnyConnect configuration
-    _fw_configuration['tunnel_group'] = project_name
-    _fw_configuration['group_policy'] = project_name
+    _fw_configuration['tunnel_group'] = os_project_name
+    _fw_configuration['group_policy'] = os_project_name
     _fw_configuration['group_password'] = keystonelib.generate_password(16)
     _fw_configuration['vpn_user'] = user_name
     _fw_configuration['vpn_password'] = keystonelib.generate_password(16)
@@ -302,11 +330,10 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
         ports.append({'inside':_ports['fw_inside_primary_port_id']})
 
     az = "ZONE-A"
-#    primary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,primary_config,az,file_path)
     print _metadata
     primary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
 					ports=ports,file_contents=primary_config,az=az,file_path=file_path,
-					meta=_metadata)
+					meta=_metadata,tenant_id=os_project.id)
 
 
     # Check to see if VM state is ACTIVE.
@@ -354,10 +381,9 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
         ports.append({'failover':_ports['fw_failover_secondary_port_id']})
 
 	az = 'ZONE-B'
-#        secondary_fw = novalib.boot_server(hostname,fw_image,fw_flavor,ports,secondary_config,az,file_path) 
 	secondary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
                                         ports=ports,file_contents=secondary_config,az=az,file_path=file_path,
-					meta=_metadata)
+					meta=_metadata,tenant_id=os_project.id)
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -438,10 +464,9 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 	ports.append({'outside':_ports['lb_outside_primary_port_id']})
 	ports.append({'inside':_ports['lb_inside_primary_port_id']})
 
-#    primary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,primary_config,az="ZONE-A")
     az = 'ZONE-A'
     primary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=primary_config,az=az)
+                                        ports=ports,userdata=primary_config,az=az,tenant_id=os_project.id)
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
@@ -484,11 +509,9 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
         ports.append({'inside':_ports['lb_inside_secondary_port_id']})
         ports.append({'failover':_ports['lb_failover_secondary_port_id']})
 
-#        secondary_lb = novalib.boot_lb(hostname,lb_image,lb_flavor,ports,secondary_config,az="ZONE-B")
- 
         az = 'ZONE-B'
         secondary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=secondary_config,az=az) 
+                                        ports=ports,userdata=secondary_config,az=az,tenant_id=os_project.id) 
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -533,7 +556,7 @@ def launch_instance(network_id,vm_image,vm_flavor):
     print "\nLaunching a virtual machine for testing..."    
 
     vm_hostname = _metadata['hostname'] + "-VM"
-    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A")
+    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A",tenant_id=os_project.id)
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for the virtual machine %s to go ACTIVE..." % instance.id
@@ -572,7 +595,7 @@ def load_config():
     return config
 
 def create(args):
-    global _networks, _ports, _metadata
+    global _networks, _ports, _metadata, os_project
 
     # Try opening the file that contains information about the networks, flavors, and images
     # (todo) Accept these as (optional) command-line inputs
@@ -599,7 +622,7 @@ def create(args):
 
     # Launch the device(s)
     _metadata['hostname'] = novalib.random_server_name()
-    keystone_project,keystone_user = create_project(args.account_number)
+    os_project = create_project(args.account_number)
     _metadata['env'] = args.env
 
     # Create networks
@@ -614,7 +637,7 @@ def create(args):
 
     # Launch devices
     print "Launching devices... (This operation can take a while for large images.)"
-    _fw_configuration = build_fw_configuration(keystone_project.name,keystone_user.name,args.ha)
+    _fw_configuration = build_fw_configuration(os_project.name,'username',args.ha)
     launch_firewall(args.ha,args.fw,_ports,_fw_configuration,fw_image,fw_flavor)
 
     if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW

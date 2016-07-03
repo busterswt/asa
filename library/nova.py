@@ -11,6 +11,10 @@ def random_server_name():
     
     return name
 
+def list_interfaces(server):
+    interfaces = nova.servers.interface_list(server)
+    return interfaces
+
 def find_instances(**kwargs):
     """
     :param kwargs: Optional additional arguments for finding instances
@@ -23,7 +27,6 @@ def find_instances(**kwargs):
     # Search for environment number in metadata
     if kwargs.get('env') is not None:
 	search_opts['metadata']['env'] = kwargs.get('env')
-#	search_opts['metadata'] = '{"env": "%s"}' % kwargs.get('env')
 #        search_opts['metadata'].update({"env": kwargs.get('env')})
     # Search for account number in metadata
     if kwargs.get('account_number') is not None:
@@ -38,14 +41,16 @@ def find_instances(**kwargs):
     # Search for peer ID
     if kwargs.get('peer') is not None:
         search_opts['metadata'] = '{"peer": "%s"}' % kwargs.get('peer')
-
+    # Search for type
+    if kwargs.get('type') is not None:
+	search_opts['metadata']['type'] = kwargs.get('type')
 
     # (note) The metadata value must be enclosed 
     # in quotes or it won't search
     strMetadata = json.dumps(search_opts['metadata'])
     search_opts['metadata'] = '%s' % strMetadata
 #    search_opts = {'metadata': '{"env": "ENV703871"}','all_tenants': 1}
-    print search_opts
+#    print search_opts
     servers = nova.servers.list(search_opts=search_opts)
     for server in servers:
         print server.name,server.metadata
@@ -95,6 +100,11 @@ def boot_instance(name,image,flavor,az,**kwargs):
     # Check to see if metadata has been injected
     if kwargs.get('meta') is not None:
         server_args['meta'] = kwargs.get('meta')
+
+    # Set the tenant/project id - Can Nova not do this?? STOP HERE
+    # Nova instance can't use ports created by another project/tenant
+    if kwargs.get('tenant_id') is not None:
+	server_args['tenant_id'] = kwargs.get('tenant_id')
 
     server = nova.servers.create(name=name,
 		                image=image,
@@ -167,3 +177,7 @@ def get_console(server):
     vnc = server.get_spice_console("spice-html5")
     return vnc['console']['url']
 
+def list_instances():
+    search_opts = {'all_tenants': 1}
+    servers = nova.servers.list(search_opts=search_opts)
+    return servers
