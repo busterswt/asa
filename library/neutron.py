@@ -8,12 +8,17 @@ def create_network(network_name,**kwargs):
     network["network"] = {}
     network["network"]["name"] = network_name
     network["network"]["admin_state_up"] = 'True'
+    network["network"]["shared"] = 'True' # Workaround for Nova
     
     # Set the network type {vxlan,vlan}
     if kwargs.get('network_type') is not None:
 	network["network"]['provider:network_type'] = kwargs.get('network_type')
     else:
 	network["network"]['provider:network_type'] = 'vxlan' # Default to vxlan if type isn't specified
+
+    # Set the tenant/project id
+    if kwargs.get('tenant_id') is not None:
+	network['network']['tenant_id'] = kwargs.get('tenant_id')
 
     return neutron.create_network(body=network)
 
@@ -52,6 +57,10 @@ def create_subnet(network_id,cidr,**kwargs):
         subnet['subnet']['enable_dhcp'] = kwargs.get('enable_dhcp')
     else:
         subnet['subnet']['enable_dhcp'] = 'False' # Default to False if not specified
+
+    # Set the tenant/project id
+    if kwargs.get('tenant_id') is not None:
+        subnet['subnet']['tenant_id'] = kwargs.get('tenant_id')
 
     response = neutron.create_subnet(body=subnet)
     return response['subnet']['id']
@@ -98,6 +107,14 @@ def create_port(network_id,hostname,**kwargs):
         port["port"]["fixed_ips"].append({'subnet_id':kwargs.get('subnet_id'),
 					'ip_address':kwargs.get('ip_address')})
 
+    # Add description (json)
+    if kwargs.get('description') is not None:
+	port["port"]["description"] = kwargs.get('description')
+
+    # Set the tenant/project id
+    if kwargs.get('tenant_id') is not None:
+        port['port']['tenant_id'] = kwargs.get('tenant_id')
+
     response = neutron.create_port(body=port)
     return response["port"]["id"]
 
@@ -143,3 +160,12 @@ def get_netmask_from_subnet(subnet_id):
     # Print information, mapping integer lists to strings for easy printing
     subnet_mask = ".".join(map(str, mask))
     return subnet_mask
+
+def list_ports(device_id=None,type=None):
+    # (todo) test this heavily
+    if type is not None:
+	ports = neutron.list_ports(device_id=device_id,description='{"type":"%s"}' % type)
+    else:
+        ports = neutron.list_ports(device_id=device_id)
+    return ports
+

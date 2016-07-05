@@ -11,7 +11,7 @@ if [ "$key" = '' ]; then
 	echo -e "\nDeleting users..."
 	for i in $(openstack user list | grep -E 'User_' | awk {'print $2'}); do openstack user delete $i; done
         echo -e "\nDeleting projects..."
-	for i in $(openstack project list | grep -E 'Account_' | awk {'print $2'}); do openstack project delete $i; done
+	for i in $(openstack project list | grep -E 'Moonshine' | awk {'print $2'}); do openstack project delete $i; done
 else
 	echo -e "\nExiting cleanup!"
 fi

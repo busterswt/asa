@@ -2,6 +2,7 @@ import os
 import hashlib
 from clients import keystone
 from keystoneclient import utils
+from keystoneclient.openstack.common.apiclient import exceptions
 import random
 
 def generate_password(len):
@@ -23,6 +24,7 @@ def verify_project(project_name_or_id):
         project = utils.find_resource(keystone.projects,project_name_or_id)
 
         if project is not None:
+#	    print "Current project id: %s" % project.id # debugging
             return project
         else:    
             project = keystone.projects.get(project_name_or_id)
@@ -46,3 +48,18 @@ def create_user(account_number,tenant_id,password):
                 email="moonshine@learningneutron.com", tenant_id=tenant_id)
     return new_user
 
+def add_user_to_project(user_id,project_id):
+    try:
+	role = get_role('admin')
+	response = keystone.roles.grant(user=user_id,role=role.id,project=project_id)
+	return response # Expecting None if it works
+    except exceptions.Conflict, e:
+	print "Error adding user: {0}".format(e)	
+
+def get_user(user_name_or_id):
+    user = utils.find_resource(keystone.users,user_name_or_id)
+    return user
+
+def get_role(role_name_or_id):
+    role = utils.find_resource(keystone.roles,role_name_or_id)
+    return role

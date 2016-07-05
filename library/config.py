@@ -692,7 +692,6 @@ def generate_f5_config(ha,_lb_configuration):
         config['bigip']['network']['interfaces']['1.3']['is_sync'] = 'true'
 
     json_config = json.dumps(config)
-    print json_config
     return json_config
 
 

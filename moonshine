@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import requests, json, sys
-import argparse, time
+import argparse, time, logging
 from prettytable import PrettyTable
 import library.neutron as neutronlib
 import library.config as configlib
@@ -23,14 +23,21 @@ def create_project(account_number):
     # Check for existance of project
     os_project = keystonelib.verify_project(account_number)
     if os_project is not None:
-	print "Associating devices with existing project %s..." % os_project.id
+	print "Existing project/account found! Associating devices with existing project %s..." % os_project.id
     else:
-	print "Associating devices with new project..."
+	print "Creating new project! Associating devices with new project..."
 	try:
 	     os_project = keystonelib.create_project(account_number)
+	     quotas = novalib.set_quotas(os_project) # Set quotas
         except Exception, e:
-    	    print "Unable to create project in Keystone! %s" % e
+    	    logging.exception("Unable to create project in Keystone! %s" % e)
     	    # (todo) rollback and exit gracefully
+
+	# Set quotas for the new project
+	try:
+	    response = novalib.set_quotas(os_project)
+	except Exception, e:
+	    logging.exception("Unable to set quotas! %s" % e)
 
     _metadata.update({"account_number": account_number})
     # Return the project that will be used when creating resources
@@ -176,7 +183,7 @@ def create_fw_ports():
 									port_security_enabled='False',
 									tenant_id=os_project.id)
     except Exception, e:
-	print "Error creating virtual ports. Rolling back port creation! %s" % e
+	logging.exception("Error creating virtual ports. Rolling back port creation! %s" % e)
 	# (todo) implement rollback then exit
 
     return _ports # Return the ports. They will be used to generate the configuration.
@@ -230,7 +237,7 @@ def create_lb_ports():
 								port_security_enabled='False',
 								tenant_id=os_project.id)
     except Exception, e:
-        print "Error creating virtual ports. Rolling back port creation! %s" % e
+        logging.exception("Error creating virtual ports. Rolling back port creation! %s" % e)
         # (todo) implement rollback then exit
 	sys.exit(1)
         
@@ -330,10 +337,10 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
         ports.append({'inside':_ports['fw_inside_primary_port_id']})
 
     az = "ZONE-A"
-    print _metadata
+#    print _metadata # Debugging
     primary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
 					ports=ports,file_contents=primary_config,az=az,file_path=file_path,
-					meta=_metadata,tenant_id=os_project.id)
+					meta=_metadata,project_name=os_project.name)
 
 
     # Check to see if VM state is ACTIVE.
@@ -383,7 +390,7 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
 	az = 'ZONE-B'
 	secondary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
                                         ports=ports,file_contents=secondary_config,az=az,file_path=file_path,
-					meta=_metadata,tenant_id=os_project.id)
+					meta=_metadata,project_name=os_project.name)
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -466,7 +473,8 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 
     az = 'ZONE-A'
     primary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=primary_config,az=az,tenant_id=os_project.id)
+                                        ports=ports,userdata=primary_config,az=az,project_name=os_project.name,
+					meta=_metadata)
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
@@ -511,7 +519,8 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 
         az = 'ZONE-B'
         secondary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=secondary_config,az=az,tenant_id=os_project.id) 
+                                        ports=ports,userdata=secondary_config,az=az,project_name=os_project.name,
+					meta=_metadata) 
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -556,7 +565,7 @@ def launch_instance(network_id,vm_image,vm_flavor):
     print "\nLaunching a virtual machine for testing..."    
 
     vm_hostname = _metadata['hostname'] + "-VM"
-    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A",tenant_id=os_project.id)
+    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A",project_name=os_project.name)
 
     # Check to see if VM state is ACTIVE.
     print "Waiting for the virtual machine %s to go ACTIVE..." % instance.id
@@ -602,7 +611,7 @@ def create(args):
     try:
 	config = load_config()
     except Exception, e:
-	print "Unable to load configuration file! %s" % e
+	logging.exception("Unable to load configuration file! %s" % e)
 	sys.exit(1)
 
     _networks['netdev_network'] = config['networks']['outside']
@@ -619,10 +628,24 @@ def create(args):
         vm_image = config['vm']['image']
         vm_flavor = config['vm']['flavor']
 
-
-    # Launch the device(s)
+    # Set arbitrary hostname
+    # (todo) The hostname will eventually be device number. Need to work out adding devices one at a time!
     _metadata['hostname'] = novalib.random_server_name()
+
+    # Create a project for the devices to live in
     os_project = create_project(args.account_number)
+    _metadata['project_name'] = os_project.name
+
+    # Assign admin role to the current user in the new project
+    # This will allow us to boot instances in that project
+    try:
+        user = keystonelib.get_user('admin') # hardcoded for now
+        # (todo) Maybe add this in to the create_project function
+        response = keystonelib.add_user_to_project(user.id,os_project.id)
+    except Exception, e:
+	logging.exception("Unable to add user to new project. Bailing! %s" % e)
+
+    # Set the environment number
     _metadata['env'] = args.env
 
     # Create networks
@@ -655,36 +678,65 @@ def create(args):
 def list_devices():
     servers = novalib.list_instances()
 
-    details = PrettyTable(["ID", "Environment", "Account", "Device", "Name", "Type", "Management IP"])
-#    details.align["Parameter"] = "l" # right align
-#    details.align["Value"] = "l" # left align
+    details = PrettyTable(["id", "environment", "account", "device", "name", "type", "management address"])
+    details.align["id"] = "l" # left
 
     for server in servers:
-	id = server.id
-	env = server.metadata.get('env')
-	account = server.metadata.get('account_number')
-	device = server.metadata.get('device')
-	name = server.metadata.get('hostname')
-	type = server.metadata.get('type')
-	mgmt = novalib.list_interfaces(server)
-        details.add_row([id,env,account,device,name,type,mgmt])
+	if server.metadata.get('hostname') is not None:
+   	    id = server.id
+	    env = server.metadata.get('env')
+	    account = server.metadata.get('account_number')
+ 	    device = server.metadata.get('device')
+	    name = server.metadata.get('hostname')
+	    type = server.metadata.get('type')
+	    mgmt = ''
+
+	    ports = neutronlib.list_ports(device_id=server.id,type='management')
+	    for port in ports["ports"]:
+		mgmt = port["fixed_ips"][0]["ip_address"]
+            details.add_row([id,env,account,device,name,type,mgmt])
+
+    print details
+
+def find_devices(**keys):
+    servers = novalib.find_instances(**keys)
+
+    details = PrettyTable(["id", "environment", "account", "device", "name", "type", "management address"])
+    details.align["id"] = "l" # left
+
+    for server in servers:
+        if server.metadata.get('hostname') is not None:
+            id = server.id
+            env = server.metadata.get('env')
+            account = server.metadata.get('account_number')
+            device = server.metadata.get('device')
+            name = server.metadata.get('hostname')
+            type = server.metadata.get('type')
+	    mgmt = ''
+
+            ports = neutronlib.list_ports(device_id=server.id,type='management')
+            for port in ports["ports"]:
+                mgmt = port["fixed_ips"][0]["ip_address"]
+            details.add_row([id,env,account,device,name,type,mgmt])
 
     print details
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='nfv.py - NFV PoC that build virtual firewalls and load balancers')
+    parser = argparse.ArgumentParser(prog='moonshine',description='Proof of concept instance deployment \
+						tool used to bootstrap and deploy virtual network devices, \
+						including firewalls and load balancers')
     subparsers = parser.add_subparsers(help='commands',dest='command')
 
     # A list command
-    list_parser = subparsers.add_parser('list', help='List devices')
+    list_parser = subparsers.add_parser('list', help='List all virtual network instances')
 
     # A find command
-    find_parser = subparsers.add_parser('find', help='Find devices')    
-    find_parser.add_argument('--env', action='store', dest='env', help='Find server based on environment number', required=False)
-    find_parser.add_argument('--account', action='store', dest='account_number', help='Find server based on account number', required=False)
+    find_parser = subparsers.add_parser('find', help='Find virtual network instances')    
+    find_parser.add_argument('--env', action='store', dest='env', help='Find instance based on environment number', required=False)
+    find_parser.add_argument('--account', action='store', dest='account_number', help='Find instance based on account number', required=False)
 
     # A create command
-    create_parser = subparsers.add_parser('create', help='Create device(s)')
+    create_parser = subparsers.add_parser('create', help='Create virtual network device(s)')
     create_parser.add_argument('--env', dest='env', help='Specify DCX environment number', required=True)
     create_parser.add_argument('--account', dest='account_number', help='Specify CORE account number', required=True)
 
@@ -692,7 +744,7 @@ if __name__ == "__main__":
 				choices=['asav5', 'asav10', 'asav30','vsrx'], required=False)
     create_parser.add_argument('--lb', dest='lb', help='Specify load balancer type', 
 				choices=['ltm','netscaler'], required=False)
-    create_parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network devices in a highly-available manner', required=False)
+    create_parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network instances in a highly-available manner', required=False)
     create_parser.add_argument('--vm', dest='vm', action='store_true', help='Builds a virtual machine on the backend', required=False)
     create_parser.set_defaults(ha=False)
     create_parser.set_defaults(lb=None)
@@ -710,18 +762,18 @@ if __name__ == "__main__":
         if args.command == 'find':
 	    keys = vars(args)
 	    keys.pop('command') # Remove the command arg. Only send the legit ones.
-	    print keys
-            print novalib.find_instances(**keys)
+            find_devices(**keys)
             sys.exit(1)
     except Exception, e:
-	print "Oops! Unable to find: %s" % e
+	logging.exception("Oops! Unable to find: %s" % e)
 
     # The LIST parser
     try:
 	if args.command == 'list':
 	    list_devices()
+	    sys.exit(1)
     except Exception, e:
-	print "Oops! Unable to list! %s" % e
+	logging.exception("Oops! Unable to list! %s" % e)
 
     # The CREATE parser
     # (todo) Build it so that an individual device can be created and added to an environment
@@ -730,7 +782,7 @@ if __name__ == "__main__":
 	if args.command == 'create':
 	    # (todo) Tie environments into Keystone tenants.
 	    # Check for tenant/project before proceeding. Maybe notify user?
-	    print "Creating devices for environment %s" % args.env
+	    print "Creating devices for environment %s in account %s" % (args.env,args.account_number)
 	    create(args)
     except Exception, e:
-	print "Oops! Unable to create! %s" % e
+	logging.exception("Oops! Unable to create! %s" % e)

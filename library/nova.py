@@ -1,8 +1,25 @@
-import json
-from clients import nova
+import json, logging
+import keystone as keystonelib
+import clients as clients
+#from clients import nova
 import random, time
 from inspect import getmembers
 from pprint import pprint
+
+
+_keystone_creds = clients.get_keystone_creds()
+sess = clients.create_session(**_keystone_creds)
+nova = clients.make_nova_client(session=sess)
+
+def set_quotas(os_project):
+    # Sets default quotas for newly-created projects
+    _quotas = {}
+    _quotas['injected_file_content_bytes'] = '-1'
+    _quotas['ram'] = '65536'
+    _quotas['cores'] = '16'
+    _quotas['instances'] = '8'
+    response = nova.quotas.update(os_project.id,**_quotas)
+    return response
 
 def random_server_name():
     verbs = ('Squashed','Squeaming','Bouncing','Unkept','Disgusting','Whopping','Joking', 'Running', 'Walking', 'Jumping', 'Bumping', 'Rolling')
@@ -10,10 +27,6 @@ def random_server_name():
     name = '-'.join([random.choice(verbs), random.choice(veggies)])
     
     return name
-
-def list_interfaces(server):
-    interfaces = nova.servers.interface_list(server)
-    return interfaces
 
 def find_instances(**kwargs):
     """
@@ -52,8 +65,6 @@ def find_instances(**kwargs):
 #    search_opts = {'metadata': '{"env": "ENV703871"}','all_tenants': 1}
 #    print search_opts
     servers = nova.servers.list(search_opts=search_opts)
-    for server in servers:
-        print server.name,server.metadata
     return servers
 
 def boot_instance(name,image,flavor,az,**kwargs):
@@ -101,54 +112,20 @@ def boot_instance(name,image,flavor,az,**kwargs):
     if kwargs.get('meta') is not None:
         server_args['meta'] = kwargs.get('meta')
 
-    # Set the tenant/project id - Can Nova not do this?? STOP HERE
+    # Set the tenant/project id
+    # Will need to create a new Nova client with the new project ID
     # Nova instance can't use ports created by another project/tenant
-    if kwargs.get('tenant_id') is not None:
-	server_args['tenant_id'] = kwargs.get('tenant_id')
+    if kwargs.get('project_name') is not None:
+        _keystone_creds['project_name'] = kwargs.get('project_name')
+	sess = clients.create_session(**_keystone_creds)
+	nova = clients.make_nova_client(session=sess)
 
+#    print _keystone_creds # Debugging
     server = nova.servers.create(name=name,
 		                image=image,
                 		flavor=flavor,
 		                availability_zone=az,
 				**server_args)
-
-    return server
-
-def boot_server(hostname,image_id,flavor_id,ports,file_contents,az,file_path):
-
-    # Convert ports to a list of dictionaries
-    nic_ports = []
-    for port in ports:
-        for portname,portid in port.items():
-	    nic_ports.append({'port-id':portid})
-
-    server = nova.servers.create(name=hostname,
-                image=image_id,
-                flavor=flavor_id,
-                availability_zone=az,
-                nics=nic_ports,
-                config_drive="True",
-                files={"path":file_path,"contents":file_contents}
-                )
-
-    return server
-
-def boot_lb(hostname,image_id,flavor_id,ports,userdata,az):
-
-    # Convert ports to a list of dictionaries
-    nic_ports = []
-    for port in ports:
-        for portname,portid in port.items():
-            nic_ports.append({'port-id':portid})
-
-    server = nova.servers.create(name=hostname,
-		image=image_id,
-		flavor=flavor_id,
-		availability_zone=az,
-		nics=nic_ports,
-		config_drive="True",
-		userdata=userdata
-		)
 
     return server
 
@@ -181,3 +158,5 @@ def list_instances():
     search_opts = {'all_tenants': 1}
     servers = nova.servers.list(search_opts=search_opts)
     return servers
+
+
