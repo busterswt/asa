@@ -8,7 +8,7 @@ def create_network(network_name,**kwargs):
     network["network"] = {}
     network["network"]["name"] = network_name
     network["network"]["admin_state_up"] = 'True'
-    network["network"]["shared"] = 'True' # Workaround for Nova
+#    network["network"]["shared"] = 'True' # Workaround for Nova
     
     # Set the network type {vxlan,vlan}
     if kwargs.get('network_type') is not None:

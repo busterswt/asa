@@ -59,7 +59,7 @@ def create_fw_networks(ha,lb):
     else:
 	_networks['fw_inside_network_name'] = _metadata['hostname'] + "-FW-INSIDE"
 	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'],
-						network_type="vxlan",
+						network_type="vlan",
 						tenant_id=os_project.id) # vxlan is temporary	
 	dhcp=True
 	inside_cidr = "192.168.100.0/28"
@@ -99,7 +99,7 @@ def create_lb_networks(ha):
     # Create INSIDE network (where servers live)
     _networks['lb_inside_network_name'] = _metadata['hostname'] + "-LB-INSIDE"
     lb_inside_network = neutronlib.create_network(network_name=_networks['lb_inside_network_name'],
-						network_type="vxlan",
+						network_type="vlan",
 						tenant_id=os_project.id) # vxlan is temporary
     dhcp=True
     inside_cidr = "192.168.100.0/24"
@@ -340,7 +340,7 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
 #    print _metadata # Debugging
     primary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
 					ports=ports,file_contents=primary_config,az=az,file_path=file_path,
-					meta=_metadata,project_name=os_project.name)
+					meta=_metadata,project_id=os_project.id)
 
 
     # Check to see if VM state is ACTIVE.
@@ -390,7 +390,7 @@ def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
 	az = 'ZONE-B'
 	secondary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
                                         ports=ports,file_contents=secondary_config,az=az,file_path=file_path,
-					meta=_metadata,project_name=os_project.name)
+					meta=_metadata,project_id=os_project.id)
 
         # Check to see if VM state is ACTIVE.
         # (todo) Will want to put an ERROR check in here so we can move on
@@ -473,7 +473,7 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 
     az = 'ZONE-A'
     primary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=primary_config,az=az,project_name=os_project.name,
+                                        ports=ports,userdata=primary_config,az=az,project_id=os_project.id,
 					meta=_metadata)
 
     # Check to see if VM state is ACTIVE.
@@ -519,7 +519,7 @@ def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
 
         az = 'ZONE-B'
         secondary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=secondary_config,az=az,project_name=os_project.name,
+                                        ports=ports,userdata=secondary_config,az=az,project_id=os_project.id,
 					meta=_metadata) 
 
         # Check to see if VM state is ACTIVE.

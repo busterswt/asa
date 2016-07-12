@@ -2,7 +2,7 @@
 # Boilerplate for preparing client objects
 import os, sys, logging
 from urlparse import urlparse
-from keystoneclient import session, exceptions
+from keystoneclient import session, exceptions, utils
 from keystoneclient.exceptions import AuthorizationFailure, Unauthorized
 
 # v2 client
@@ -20,13 +20,14 @@ from neutronclient.v2_0 import client as nclient
 # Nova client
 from novaclient import client as novaclient
 
-def create_session(username,password,auth_url,project_name,user_domain_id,project_domain_id,*args):
+def create_session(username,password,auth_url,project_id,user_domain_id,project_domain_id,*args):
     # Creates a new session
     try:
         _keystone_creds['username'] = username
         _keystone_creds['password'] = password
         _keystone_creds['auth_url'] = auth_url
-        _keystone_creds['project_name'] = project_name
+	_keystone_creds['project_id'] = project_id
+#        _keystone_creds['project_name'] = project_name
         _keystone_creds['user_domain_id'] = user_domain_id
         _keystone_creds['project_domain_id'] = project_domain_id
     except KeyError, e:
@@ -43,7 +44,8 @@ def get_keystone_creds():
         _keystone_creds['username'] = os.environ['OS_USERNAME']
         _keystone_creds['password'] = os.environ['OS_PASSWORD']
 	_keystone_creds['auth_url'] = os.environ['OS_AUTH_URL']
-	_keystone_creds['project_name'] = os.environ['OS_PROJECT_NAME']
+#	_keystone_creds['project_name'] = os.environ['OS_PROJECT_NAME']
+	_keystone_creds['project_id'] = os.environ['OS_PROJECT_ID']
 	_keystone_creds['user_domain_id'] = os.environ['OS_USER_DOMAIN_NAME']
 	_keystone_creds['project_domain_id'] = os.environ['OS_PROJECT_DOMAIN_NAME']    
     except KeyError, e:

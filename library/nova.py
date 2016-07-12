@@ -6,7 +6,8 @@ import random, time
 from inspect import getmembers
 from pprint import pprint
 
-
+# (todo) There is a bug that makes Keystone/Nova reuse an existing token 
+# that matches the same project name but a different project id
 _keystone_creds = clients.get_keystone_creds()
 sess = clients.create_session(**_keystone_creds)
 nova = clients.make_nova_client(session=sess)
@@ -115,8 +116,8 @@ def boot_instance(name,image,flavor,az,**kwargs):
     # Set the tenant/project id
     # Will need to create a new Nova client with the new project ID
     # Nova instance can't use ports created by another project/tenant
-    if kwargs.get('project_name') is not None:
-        _keystone_creds['project_name'] = kwargs.get('project_name')
+    if kwargs.get('project_id') is not None:
+        _keystone_creds['project_id'] = kwargs.get('project_id')
 	sess = clients.create_session(**_keystone_creds)
 	nova = clients.make_nova_client(session=sess)
 
