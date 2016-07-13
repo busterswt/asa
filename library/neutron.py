@@ -20,6 +20,10 @@ def create_network(network_name,**kwargs):
     if kwargs.get('tenant_id') is not None:
 	network['network']['tenant_id'] = kwargs.get('tenant_id')
 
+    # For now, desc is json with metadata about network
+    if kwargs.get('description') is not None:
+	network['network']['description'] = kwargs.get('description')
+
     return neutron.create_network(body=network)
 
 def get_segment_id_from_network(network_id):

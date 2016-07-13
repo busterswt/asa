@@ -17,6 +17,7 @@ export OS_AUTH_URL=http://204.232.174.206:5000/v3
 export OS_NO_CACHE=1
 export OS_USER_DOMAIN_NAME=Default
 export OS_PROJECT_DOMAIN_NAME=Default
+export OS_PROJECT_ID=4f077b35baba4c3bb1bb8d2cad49061d
 
 # For openstackclient
 export OS_IDENTITY_API_VERSION=3

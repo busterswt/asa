@@ -1,0 +1,9 @@
+create table networks (
+    network_id            text primary key,
+    tenant_id             text,
+    account_number        integer,
+    environment_number    text,
+    type                  text,
+    cidr                  text
+);
+
