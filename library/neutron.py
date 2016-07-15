@@ -8,13 +8,16 @@ def create_network(network_name,**kwargs):
     network["network"] = {}
     network["network"]["name"] = network_name
     network["network"]["admin_state_up"] = 'True'
-#    network["network"]["shared"] = 'True' # Workaround for Nova
     
     # Set the network type {vxlan,vlan}
     if kwargs.get('network_type') is not None:
 	network["network"]['provider:network_type'] = kwargs.get('network_type')
     else:
 	network["network"]['provider:network_type'] = 'vxlan' # Default to vxlan if type isn't specified
+
+    # Set the segmentation id
+    if kwargs.get('segmentation_id') is not None:
+        network["network"]['provider:segmentation_id'] = kwargs.get('segmentation_id')
 
     # Set the tenant/project id
     if kwargs.get('tenant_id') is not None:
@@ -66,8 +69,7 @@ def create_subnet(network_id,cidr,**kwargs):
     if kwargs.get('tenant_id') is not None:
         subnet['subnet']['tenant_id'] = kwargs.get('tenant_id')
 
-    response = neutron.create_subnet(body=subnet)
-    return response['subnet']['id']
+    return neutron.create_subnet(body=subnet)
 
 def add_address_pair(port_id,ip_address,mac_address=None):
     # This function is UNUSED at this time (but works)
@@ -90,15 +92,12 @@ def add_address_pair(port_id,ip_address,mac_address=None):
 
     response = neutron.update_port(port_id, req)    
 
-def create_port(network_id,hostname,**kwargs):
+def create_port(network_id,**kwargs):
     # Creates a port and returns the port id
-
-    port_name = hostname + "-" + network_id[:11]
 
     port = {}
     port["port"] = {}
     port["port"]["admin_state_up"] = 'True'
-    port["port"]["name"] = port_name
     port["port"]["network_id"] = network_id
 
     # Set port security true/false if specified. Otherwise use to Neutron default.
@@ -108,8 +107,15 @@ def create_port(network_id,hostname,**kwargs):
     # Manually set IP of port
     if kwargs.get('ip_address') is not None:
         port["port"]["fixed_ips"] = []
-        port["port"]["fixed_ips"].append({'subnet_id':kwargs.get('subnet_id'),
+	if kwargs.get('subnet_id') is not None:
+            port["port"]["fixed_ips"].append({'subnet_id':kwargs.get('subnet_id'),
 					'ip_address':kwargs.get('ip_address')})
+	else:
+	    port["port"]["fixed_ips"].append({'ip_address':kwargs.get('ip_address')})
+
+    # Set port name if specified
+    if kwargs.get('port_name') is not None:
+	port["port"]["name"] = kwargs.get('port_name')
 
     # Add description (json)
     if kwargs.get('description') is not None:
@@ -119,8 +125,7 @@ def create_port(network_id,hostname,**kwargs):
     if kwargs.get('tenant_id') is not None:
         port['port']['tenant_id'] = kwargs.get('tenant_id')
 
-    response = neutron.create_port(body=port)
-    return response["port"]["id"]
+    return neutron.create_port(body=port)
 
 def get_fixedip_from_port(port_id):
     # Returns the (first) fixed IP of a port

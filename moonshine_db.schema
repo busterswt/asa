@@ -3,7 +3,22 @@ create table networks (
     tenant_id             text,
     account_number        integer,
     environment_number    text,
-    type                  text,
-    cidr                  text
+    network_name          text,
+    cidr                  text,
+    segmentation_id	  integer,
+    network_type	  text,
+    subnet_id		  text
 );
 
+create table ports (
+    port_id		  text primary key,
+    network_id            text,
+    network_name          text,
+    tenant_id             text,
+    account_number        integer,
+    environment_number    text,
+    port_name             text,
+    fixed_ip		  text,
+    device_number         text,
+    instance_id		  text
+);

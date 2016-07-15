@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sqlite3, os
+import netaddr
 import requests, json, sys
 import argparse, time, logging
 from prettytable import PrettyTable
@@ -68,35 +69,127 @@ def create_networks(network_blob):
     dbmgr = DatabaseManager(db_filename)
 
     for m_network in network_blob["networks"]:
-	# Validates a network matching env and cidr doesn't already exist
-	data = dbmgr.query("select count(*) from networks where cidr=? and environment_number=?", 
-				(m_network["cidr"],network_blob["environment_number"]))
+	# Finds the true CIDR (bit boundary) for given CIDR/IP/Address (Data Validation)
+	real_cidr = str(netaddr.IPNetwork(m_network["cidr"]).cidr)
 
-	count = data.fetchone()[0]
-	if count > 0:
-	    print "Network with CIDR %s already exists as part of environment %s! Not creating" % (m_network["cidr"],network_blob["environment_number"])
+	# Validates a network matching env and cidr doesn't already exist.
+	# (todo) How do we also validate the network name isn't used yet
+	data = dbmgr.query("select count(*) from networks where cidr=? and environment_number=?", 
+				(real_cidr,network_blob["environment_number"]))
+
+	count = data.fetchone()
+	if count[0] > 0:
+	    print "Network with CIDR %s already exists as part of environment %s! Not creating" % (real_cidr,network_blob["environment_number"])
 
 	else:
-            print "Creating new network..."
+            print "Network does not exist in database. Creating new network."
     	    try:
+		network_args = {}
+		# Use the network type set by user
+		if m_network.get("network_type") is not None:
+		    network_args["network_type"] = m_network["network_type"]
+		# Use the segmentation id set by user
+		if m_network.get("segmentation_id") is not None:
+		    network_args["segmentation_id"] = m_network["segmentation_id"]
+
 		# Creates the network in Neutron
-                q_network = neutronlib.create_network(network_name=m_network["name"],
-                                                network_type="vxlan",
-                                                tenant_id="4f077b35baba4c3bb1bb8d2cad49061d")
+                q_network = neutronlib.create_network(network_name=m_network["network_name"],
+						**network_args) # need to set tenant id
+
                 print "Created network %s in Neutron" % (q_network["network"]["id"])
+
+		# Creates the subnet in Neutron
+		q_subnet = neutronlib.create_subnet(network_id=q_network["network"]["id"],
+							cidr=real_cidr) # Need to set tenant id
+
+		print "Created subnet %s in Neutron" % (q_subnet["subnet"]["id"])
 
 	        # Update sqlite database
 	        try:
-	    	    dbmgr.query("insert into networks (network_id,tenant_id,account_number,environment_number,type,cidr) values (?,?,?,?,?,?)", 
-				([q_network["network"]["id"],q_network["network"]["tenant_id"],
-				network_blob["account_number"],network_blob["environment_number"],
-				m_network["type"],m_network["cidr"]]))
+	    	    dbmgr.query("insert into networks (network_id,tenant_id,account_number,environment_number, \
+					network_name,cidr,segmentation_id,network_type,subnet_id) values (?,?,?,?,?,?,?,?,?)", 
+					([q_network["network"]["id"],q_network["network"]["tenant_id"],
+					network_blob["account_number"],network_blob["environment_number"],
+					m_network["network_name"],real_cidr,q_network["network"]["provider:segmentation_id"],
+					q_network["network"]["provider:network_type"],q_subnet["subnet"]["id"]]))
 	        except Exception, e:
-		    print "Unable to update local database! %s" % e
+		    print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
 	    except Exception, e:
 	        # (todo) Rollback neutron net-create, too?
-	        print "boo %s" % e	
+	        print "Error! %s" % e	
 	
+def create_ports(port_blob):
+    dbmgr = DatabaseManager(db_filename)
+
+    for m_port in port_blob["ports"]:
+
+        # Validates a port matching device number and network name doesn't already exist
+        data = dbmgr.query("select count(*) from ports where device_number=? and network_name=?",
+                                (port_blob["device_number"],m_port["network_name"]))
+
+        count = data.fetchone()
+        if count[0] > 0:
+            print "Device '%s' already has a port on the '%s' network in environment %s! Not creating" % (port_blob["device_number"],m_port["network_name"],port_blob["environment_number"])
+
+        else:
+            print "Device '%s' in environment '%s' does not have a port in the '%s' network in the database. Creating new port." % \
+			(port_blob["device_number"],port_blob["environment_number"],m_port["network_name"])            
+	    try:
+		# Get the network id based on environment number and network name
+		data = dbmgr.query("select network_id from networks where environment_number=? and network_name=?",
+                                (port_blob["environment_number"],m_port["network_name"]))
+
+		# Validate a network ID is returned
+	        network_id = data.fetchone() # How to return none if not found
+
+		if network_id is None:	
+	    	    print "Error! Network '%s' in environment '%s' does not exist in the database. Please create the network and try again." % \
+				(m_port["network_name"],port_blob["environment_number"])
+		    continue # Break out and process next port
+
+                port_args = {}
+                # Use the fixed ip set by user
+		# (todo) validate the fixed IP matches a subnet cidr of the network
+                if m_port.get("ip_address") is not None:
+                    port_args["ip_address"] = m_port["ip_address"]
+
+		# Use port security boolean set by user
+		if m_port.get("port_security_enabled") is not None:
+		    port_args["port_security_enabled"] = m_port["port_security_enabled"]
+
+                # Creates the port in Neutron
+                q_port = neutronlib.create_port(network_id=network_id[0],**port_args) # need to set tenant id
+
+                print "Created port %s in Neutron" % (q_port["port"]["id"])
+		
+
+                # Update sqlite database
+                try:
+                    dbmgr.query("insert into ports (port_id,network_id,tenant_id,account_number,environment_number, \
+                                        network_name,fixed_ip,device_number) values (?,?,?,?,?,?,?,?)",
+                                        ([q_port["port"]["id"],q_port["port"]["network_id"],q_port["port"]["tenant_id"],
+                                        port_blob["account_number"],port_blob["environment_number"],
+                                        m_port["network_name"],q_port["port"]["fixed_ips"][0]["ip_address"],
+                                        port_blob["device_number"]]))
+                except Exception, e:
+                    print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
+            except Exception, e:
+                # (todo) Rollback neutron port-create, too?
+                print "Error! %s" % e
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def create_fw_networks(ha,lb):    
     global _networks
@@ -813,7 +906,7 @@ if __name__ == "__main__":
     # (todo) use description of the port (with dict) to associate with device and account number
     createports_parser = subparsers.add_parser('create-ports', help='Create virtual network port(s)')
     createports_parser.add_argument('-p','--ports',type=json.loads,
-				dest='ports',help='Specifies a list of dict key/value pairs for ports using net-id and fixed-ip')
+				dest='port_blob',help='Specifies a list of dict key/value pairs for ports using net-id and fixed-ip')
 
     createnetworks_parser = subparsers.add_parser('create-networks', help='Create virtual network(s)')
     createnetworks_parser.add_argument('-n','--networks',type=json.loads,
@@ -854,15 +947,16 @@ if __name__ == "__main__":
 #            print json.dumps(args.networks)
 #            sys.exit(1)
     except Exception, e:
-        logging.exception("Unable to create networks! %s" % e)
+        logging.exception("Error: Unable to create networks! %s" % e)
 
     # create-ports
     try:
 	if args.command == 'create-ports':
-	    print json.dumps(args.ports)
-	    sys.exit(1)
+	    create_ports(args.port_blob)
+#	    print json.dumps(args.ports)
+#	    sys.exit(1)
     except Exception, e:
-	logging.exception("Bummer %s" % e)
+	logging.exception("Error: Unable to create ports! %s" % e)
 
     # Work through the parser.
     # First up, the FIND parser
