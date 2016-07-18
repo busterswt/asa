@@ -124,8 +124,8 @@ def create_ports(port_blob):
     for m_port in port_blob["ports"]:
 
         # Validates a port matching device number and network name doesn't already exist
-        data = dbmgr.query("select count(*) from ports where device_number=? and network_name=?",
-                                (port_blob["device_number"],m_port["network_name"]))
+        data = dbmgr.query("select count(*) from ports where device_number=? and environment_number=? and network_name=?",
+                                (port_blob["device_number"],port_blob["environment_number"],m_port["network_name"]))
 
         count = data.fetchone()
         if count[0] > 0:
@@ -135,9 +135,15 @@ def create_ports(port_blob):
             print "Device '%s' in environment '%s' does not have a port in the '%s' network in the database. Creating new port." % \
 			(port_blob["device_number"],port_blob["environment_number"],m_port["network_name"])            
 	    try:
-		# Get the network id based on environment number and network name
-		data = dbmgr.query("select network_id from networks where environment_number=? and network_name=?",
-                                (port_blob["environment_number"],m_port["network_name"]))
+		# Let's see if using the generic outside or management network. If so, those aren't bound to environments
+		# (todo) Find a better way to do this
+		if m_port["network_name"] == "outside" or "management":
+		    data = dbmgr.query("select network_id from networks where network_name=?",
+                                ([m_port["network_name"]]))
+		else:
+		    # Get the network id based on environment number and network name
+		    data = dbmgr.query("select network_id from networks where environment_number=? and network_name=?",
+                                ([port_blob["environment_number"],m_port["network_name"]]))
 
 		# Validate a network ID is returned
 	        network_id = data.fetchone() # How to return none if not found
@@ -178,14 +184,53 @@ def create_ports(port_blob):
                 print "Error! %s" % e
 
 
+def create_instance(instance_blob):
+    dbmgr = DatabaseManager(db_filename)
+    port_exists = True
+
+    for m_port in instance_blob["ports"]:
+	print m_port
+        # Validates a port matching device number and network name exists
+        # Otherwise, kick back to the user to create the port first
+        data = dbmgr.query("select count(*) from ports where device_number=? and environment_number=? and network_name=?",
+                                (instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
+
+        count = data.fetchone()
+        if count[0] < 1:
+            print "Device '%s' does not have a port in the '%s' network in environment %s! Please create the port and try again." % \
+            				(instance_blob["device_number"],m_port["network_name"],instance_blob["environment_number"])
+            port_exists = False
+	continue # Continue the loop
+
+    if port_exists:
+    # If we're here, it should mean all ports are accounted for.
+    # (todo) ensure that we also check for peer ports, too, above. Those will be needed to generate the configuration.
+        try:
+            # Find the corresponding port IDs and build a list
+            # (todo) optimize this
+            ports = []
+            for m_port in instance_blob["ports"]:
+    	        data = dbmgr.query("select port_id from ports where device_number=? and environment_number=? and network_name=?",
+        	                      	(instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
+	        port = data.fetchone()
+	        ports.append(port[0])
+	
+ 	    print ports
+	except Exception ,e:
+	    print 'Unable to determine existence of ports %s' % e 
+
+    # Load additional config options like image IDs and flavor IDs
+    try:
+        config = load_config()
+	image_id = config[instance_blob['device_type']][instance_blob['device_model']]['image']
+	flavor_id = config[instance_blob['device_type']][instance_blob['device_model']]['flavor']
+    except Exception, e:
+        logging.exception("Unable to load configuration file! %s" % e)
+        sys.exit(1)
 
 
-
-
-
-
-
-
+    # (todo) generate device configuration - new function?
+    # (todo) boot instance (pass hostname, ports, config) - new function?
 
 
 
@@ -878,6 +923,14 @@ def build_db(db_filename,schema_filename):
             with open(schema_filename, 'rt') as f:
                 schema = f.read()
             conn.executescript(schema)
+
+	    print 'Populating local database'
+	    dbmgr = DatabaseManager(db_filename)
+		
+	    dbmgr.query("INSERT INTO networks (network_id,network_name,cidr,segmentation_id,network_type) VALUES (?,?,?,?,?)",
+                                ('1545bdef-87c7-47e9-9c7c-bb63f8fe1f57','outside','204.232.157.96/27','71','vlan'))
+	    dbmgr.query("INSERT INTO networks (network_id,network_name,cidr,segmentation_id,network_type) VALUES (?,?,?,?,?)",
+                                ('9d87197c-77f9-49e2-bf5a-d90f3d64d9ea','management','10.4.130.96/27','72','vlan'))
 	    return True
         else:
 	    return False
@@ -911,6 +964,17 @@ if __name__ == "__main__":
     createnetworks_parser = subparsers.add_parser('create-networks', help='Create virtual network(s)')
     createnetworks_parser.add_argument('-n','--networks',type=json.loads,
                                 dest='network_blob',help='Specifies a list of dict key/value pairs for network using name and cidr')
+
+    createinstance_parser = subparsers.add_parser('create-instance', help='Create virtual instance')
+    createinstance_parser.add_argument('-i','--info',type=json.loads,
+                                dest='instance_blob',help='Specifies json for instance')
+
+
+
+
+
+
+
 
     create_parser = subparsers.add_parser('create', help='Create virtual network device(s)')
 
@@ -953,10 +1017,27 @@ if __name__ == "__main__":
     try:
 	if args.command == 'create-ports':
 	    create_ports(args.port_blob)
-#	    print json.dumps(args.ports)
-#	    sys.exit(1)
     except Exception, e:
 	logging.exception("Error: Unable to create ports! %s" % e)
+
+    # create-instance
+    try:
+        if args.command == 'create-instance':
+            create_instance(args.instance_blob)
+    except Exception, e:
+        logging.exception("Error: Unable to create instance! %s" % e)    
+
+
+
+
+
+
+
+
+
+
+
+
 
     # Work through the parser.
     # First up, the FIND parser
