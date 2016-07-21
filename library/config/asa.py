@@ -1,15 +1,16 @@
-import textwrap, json
+import textwrap, json, sys
 
-def generate_asa_config(ha,data):
+def generate_configuration(instance_blob,self_ports,peer_ports):
+    # The ASA configuration will match between devices with the exception of device priority
+
     # Generate the base configuration
-    config = generate_base_config(data)
+    configuration = generate_base_config(instance_blob)
 
     # Generate the interface configuration
-    if ha:
-	config += generate_ha_interface_config(data)
-    else:
-	config += generate_standalone_interface_config(data)
+    configuration += generate_interface_config(instance_blob,self_ports,peer_ports)
 
+    print configuration
+    sys.exit(1)
     # Generate more configuration
     config += generate_access_config(data)
     config += generate_logging_config()
@@ -30,46 +31,23 @@ def generate_asa_nat_config(data):
         nat (inside,outside) after-auto source dynamic any interface
     '''.format(**data)
 
-def generate_standalone_interface_config(data):
-    standalone_config = '''
-        ! Begin interface configuration.
-        ! Interface m0/0 is management (first attached interface)
-        interface management0/0
-        nameif management
-        management-only
-        security-level 10
-        ip address {fw_mgmt_primary_address} {fw_mgmt_mask}
-        no shut
-        route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
+def generate_interface_config(instance_blob,self_ports,peer_ports):
+    # Generates ha interface configuration
+    # The first interface must be management
+   
+    # Given the port ID, determine the ip address and netmask
 
-        ! Interface g0/0 must be OUTSIDE (second attached interface)
-        interface GigabitEthernet0/0
-        no shut
-        nameif OUTSIDE
-        security-level 0
-        ip address {fw_outside_primary_address} {fw_outside_mask}
-        route outside 0.0.0.0 0.0.0.0 {fw_outside_gateway}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp OUTSIDE
-        ip verify reverse-path interface OUTSIDE
-        access-group 101 in interface OUTSIDE
 
-        ! Interface g0/1 must be INSIDE (fourth attached interface)
-        interface GigabitEthernet0/1
-        no shut
-        nameif INSIDE
-        security-level 100
-        ip address {fw_inside_primary_address} {fw_inside_netmask}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp INSIDE
-        ip verify reverse-path interface INSIDE
-        access-group 100 in interface INSIDE
-          '''.format(**data)
+    # Determine the peer interface ip (should be the same for primary or secondary, but the ports passed will be swapped
+    if 'primary' in instance_blob['device_priority']:
+	print "Device is primary"
+    elif 'secondary' in instance_blob['device_priority']:
+	print "Device is secondary"
+    else:
+	print "wrong priority for this function!"
+    if peer_ports is not None:    
 
-    return textwrap.dedent(standalone_config)
-
-def generate_ha_interface_config(data):
-    ha_config = '''
+    management_interface = '''
         ! Begin interface configuration.
         ! Interface m0/0 is management (first attached interface)
         interface management0/0
@@ -79,6 +57,7 @@ def generate_ha_interface_config(data):
         ip address {fw_mgmt_primary_address} {fw_mgmt_mask} standby {fw_mgmt_secondary_address}
         no shut
         route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
+    '''.format(
 
         ! Interface g0/0 must be OUTSIDE (second attached interface)
         interface GigabitEthernet0/0
@@ -110,14 +89,19 @@ def generate_ha_interface_config(data):
 
     return textwrap.dedent(ha_config)
 
-def generate_base_config(data):
-    base_config = '''
+def generate_base_config(instance_blob):
+    # Generates the base config of a Cisco ASA
+
+    data = {}
+    data['hostname'] = instance_blob['environment_number'] + '-' + instance_blob['account_number'] + '-' + instance_blob['device_number']
+
+    configuration = '''
         ! Begin template
-        hostname {fw_hostname}
+        hostname {hostname}
         domain-name IAD3.RACKSPACE.COM
         no http server enable
         prompt hostname pri state
-        crypto key generate rsa general-keys modulus 1024 noconfirm
+        crypto key generate rsa general-keys modulus 2048 noconfirm
 
         ! Inspections
         no threat-detection basic-threat
@@ -155,13 +139,13 @@ def generate_base_config(data):
         inspect sunrpc
         no inspect sunrpc
 
-        service-policy global_policy global        
+        service-policy global_policy global
 
         ! User configuration
         username moonshine password openstack12345 privilege 15
           '''.format(**data)
 
-    return textwrap.dedent(base_config)
+    return textwrap.dedent(configuration)
 
 def generate_access_config(data):
     access_config = '''
@@ -263,7 +247,7 @@ def generate_access_config(data):
         network-object 50.56.142.128 255.255.255.192
         ! 121019-08978 MaaS Production HKG
         network-object 180.150.149.64 255.255.255.192
-        ! 121019-08978 MaaS Production IAD 
+        ! 121019-08978 MaaS Production IAD
         network-object 69.20.52.192 255.255.255.192
         ! 121019-08978 MaaS Production LON
         network-object 78.136.44.0 255.255.255.192
@@ -362,7 +346,7 @@ def generate_access_config(data):
         group-object RACKSPACE-IPS
         group-object RACKSPACE-SITESCOPE
         group-object RACKSPACE-PATCHING
-            
+
         ! Intensive and Enterprise IP blocks
         object-group network INTENSIVE-INFRASTRUCTURE
         network-object 72.32.192.0 255.255.255.0
@@ -381,12 +365,12 @@ def generate_access_config(data):
         network-object 173.203.5.128 255.255.255.224
         object-group network RACKSPACE-NEST
         group-object INTENSIVE-INFRASTRUCTURE
-        
+
         access-list 101 line 1 extended permit ip object-group RACKSPACE-NEST any
         access-list 101 line 2 extended permit icmp any any object-group ICMP-ALLOWED
-        
+
         access-list 100 permit ip any any
-        
+
         object network obj-INSIDE-NETWORK
         subnet {fw_inside_net_addr} {fw_inside_netmask}
           '''.format(**data)
@@ -484,7 +468,7 @@ def generate_security_config():
         ssh 212.100.225.49 255.255.255.255 OUTSIDE
         ssh 120.136.34.22 255.255.255.255 OUTSIDE
         ssh 119.9.4.2 255.255.255.255 OUTSIDE
-        ! Network Security Bastion Servers 
+        ! Network Security Bastion Servers
         ssh 72.3.128.213 255.255.255.255 OUTSIDE
         ssh 72.3.128.220 255.255.255.255 OUTSIDE
         ssh 173.203.4.129 255.255.255.255 OUTSIDE
@@ -507,7 +491,7 @@ def generate_security_config():
 
     return textwrap.dedent(security_config)
 
-def generate_vpn_config(data):        
+def generate_vpn_config(data):
     vpn_config = '''
         ! VPN configuration
         crypto ipsec ikev1 transform-set AES256-SHA esp-aes-256 esp-sha-hmac
@@ -565,8 +549,8 @@ def generate_vpn_config(data):
         hash md5
         group 2
         crypto dynamic-map DYNMAP 65535 set ikev1 transform-set AES256-SHA AES256-MD5 AES256-SHA AES-MD5 3DES-SHA 3DES-MD5
-        crypto map VPNMAP 65535 ipsec-isakmp dynamic DYNMAP    
-        
+        crypto map VPNMAP 65535 ipsec-isakmp dynamic DYNMAP
+
         ! VPN Configuration
         ip local pool ippool 172.30.5.1-172.30.5.254 mask 255.255.255.0
 
@@ -598,19 +582,19 @@ def generate_vpn_config(data):
 
         ! Enable VPN
         crypto isakmp nat-traversal 20
-        crypto ikev1 enable OUTSIDE 
+        crypto ikev1 enable OUTSIDE
         crypto map VPNMAP interface OUTSIDE
 
         ! AAA Configuration - Managed by RAX
         aaa-server RACKACS protocol tacacs+
         reactivation-mode depletion deadtime 5
         aaa-server RACKACS (OUTSIDE) host 10.4.109.17 Ri7@4Zx8 timeout 2
-        aaa-server RACKACS (OUTSIDE) host 10.4.109.25 Ri7@4Zx8 timeout 2     
-        
+        aaa-server RACKACS (OUTSIDE) host 10.4.109.25 Ri7@4Zx8 timeout 2
+
         aaa authentication enable console LOCAL
         aaa authentication ssh console LOCAL
         aaa authentication http console LOCAL
-        aaa authorization command LOCAL 
+        aaa authorization command LOCAL
           '''.format(**data)
 
     return textwrap.dedent(vpn_config)
@@ -628,248 +612,3 @@ def generate_failover_config(data):
         '''.format(**data)
 
     return textwrap.dedent(failover_config)
-
-def generate_f5_config(ha,_lb_configuration):
-    # (todo) implement base key injection
-    # (todo) implement ha configuration
-
-    # Determine the addresses and config to use based on device (primary/secondary)
-    if _lb_configuration['priority'] is 'primary':
-	external_address = _lb_configuration['lb_outside_primary_address']
-	internal_address = _lb_configuration['lb_inside_primary_address']
-	
-	if ha:
-	    failover_address = _lb_configuration['lb_failover_primary_address']
-
-    elif _lb_configuration['priority'] is 'secondary':
-	external_address = _lb_configuration['lb_outside_secondary_address']
-        internal_address = _lb_configuration['lb_inside_secondary_address']
-	failover_address = _lb_configuration['lb_failover_secondary_address']
-
-    ###################################
-    # Generate the base configuration #
-    config = {}
-    config['bigip'] = {}
-    config['bigip']['ssh_key_inject'] = 'false'
-    config['bigip']['change_passwords'] = 'true'
-    config['bigip']['admin_password'] = 'openstack12345'
-    config['bigip']['root_password'] = 'openstack12345'
-
-    # Execute custom commands
-    config['bigip']['system_cmds'] = []
-    config['bigip']['system_cmds'].append('touch /tmp/openstack-moonshine')
-    config['bigip']['system_cmds'].append('uname -r >> /tmp/openstack-moonshine')
-    config['bigip']['system_cmds'].append('tmsh modify /sys sshd banner enabled banner-text "System auto-configured by Moonshine. Unauthorized access is prohibited!"')
-    # Additional commands must be appended like those above
-
-    # Configure network settings
-    config['bigip']['network'] = {}
-    config['bigip']['network']['dhcp'] = 'false'
-    config['bigip']['network']['interfaces'] = {}
-    config['bigip']['network']['interfaces']['1.1'] = {}
-    config['bigip']['network']['interfaces']['1.1']['dhcp'] = 'false'
-    config['bigip']['network']['interfaces']['1.1']['vlan_name'] = 'EXTERNAL'
-    config['bigip']['network']['interfaces']['1.1']['address'] = external_address
-    config['bigip']['network']['interfaces']['1.1']['netmask'] = _lb_configuration['lb_outside_mask']
-    config['bigip']['network']['interfaces']['1.2'] = {}
-    config['bigip']['network']['interfaces']['1.2']['dhcp'] = 'false'
-    config['bigip']['network']['interfaces']['1.2']['vlan_name'] = 'INTERNAL'
-    config['bigip']['network']['interfaces']['1.2']['address'] = internal_address
-    config['bigip']['network']['interfaces']['1.2']['netmask'] = _lb_configuration['lb_inside_mask']
-
-    # Add routes
-    config['bigip']['network']['routes'] = []
-    config['bigip']['network']['routes'].append({'destination':'0.0.0.0/0','gateway':_lb_configuration['lb_outside_gateway']})
-    # Additional routes must be appended like those above!
-
-    if ha:
-	config['bigip']['network']['interfaces']['1.3'] = {}
-	config['bigip']['network']['interfaces']['1.3']['dhcp'] = 'false'
-	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
-	config['bigip']['network']['interfaces']['1.3']['address'] = failover_address
-	config['bigip']['network']['interfaces']['1.3']['netmask'] = _lb_configuration['lb_failover_netmask']
-        config['bigip']['network']['interfaces']['1.3']['is_failover'] = 'true'
-        config['bigip']['network']['interfaces']['1.3']['is_sync'] = 'true'
-
-    json_config = json.dumps(config)
-    return json_config
-
-
-def generate_netscaler_config(ha,data):
-    config = generate_base_netscaler_config(data)
-
-    # Generate failover configuration (if ha)
-    if ha:
-        config += generate_netscaler_failover_config(data)
-
-    return config
-
-def generate_base_netscaler_config(data):
-    # (todo) implement base key injection
-    # (todo) implement ha configuration
-
-    # Fix hostnames
-    if data['priority'] == 'primary':
-	data['my_hostname'] = data['lb_hostname']+'-Unit1'
-    else:
-	data['my_hostname'] = data['lb_hostname']+'-Unit2'
-
-    # Generate the base configuration
-    netscaler_config = '''
-        # Save initial configuration
-        nscli -u :nsroot:nsroot savec
-
-        # Add additional configuration
-        nscli -u :nsroot:nsroot set ns hostName {my_hostname}
-        nscli -u :nsroot:nsroot add vlan 4092
-        nscli -u :nsroot:nsroot add vlan 4091
-        nscli -u :nsroot:nsroot add ns ip {lb_outside_primary_address} {lb_outside_mask} -vServer DISABLED
-        nscli -u :nsroot:nsroot add ns ip {lb_inside_primary_address} {lb_inside_mask} -vServer DISABLED
-        nscli -u :nsroot:nsroot bind vlan 4092 -ifnum 1/1
-        nscli -u :nsroot:nsroot bind vlan 4092 -IPAddress {lb_outside_primary_address} {lb_outside_mask}
-        nscli -u :nsroot:nsroot bind vlan 4091 -ifnum 1/2
-        nscli -u :nsroot:nsroot bind vlan 4091 -IPAddress {lb_inside_primary_address} {lb_inside_mask}
-        nscli -u :nsroot:nsroot add dns nameServer 8.8.8.8
-        nscli -u :nsroot:nsroot add dns nameServer 8.8.4.4
-
-        # Save the new running config
-        nscli -u :nsroot:nsroot savec
-          '''.format(**data)
-
-    return textwrap.dedent(netscaler_config)
-
-def generate_netscaler_failover_config(data):
-
-    if data['priority'] == 'primary':
-	data['peerid'] = '2'
-        netscaler_failover_config = '''
-            nscli -u :nsroot:nsroot add node {peerid} {lb_mgmt_secondary_address}
-            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_primary_address} -password @penstack1234
-            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_secondary_address} -password @penstack1234
-              '''.format(**data)
-    
-    elif data['priority'] == 'secondary':
-        data['peerid'] = '1'
-        netscaler_failover_config = '''
-            nscli -u :nsroot:nsroot add node {peerid} {lb_mgmt_primary_address}
-            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_primary_address} -password @penstack1234
-            nscli -u :nsroot:nsroot set rpcnode {lb_mgmt_secondary_address} -password @penstack1234
-              '''.format(**data)
-
-
-    return textwrap.dedent(netscaler_failover_config)
-
-def generate_srx_config(ha,data):
-    config = '''
-version 15.1X49-D50.3;
-system {{
-    host-name srx;
-    root-authentication {{
-        encrypted-password "$5$ytpefe9E$XTJpyXsaA9wT0IXXyg4N/xLsnRG2mbMg2MO2WGQCpW0"; ## SECRET-DATA
-    }}
-    services {{
-        ssh;
-        web-management {{
-            http {{
-                interface fxp0.0;
-            }}
-        }}
-    }}
-    syslog {{
-        user * {{
-            any emergency;
-        }}
-        file messages {{
-            any any;
-            authorization info;
-        }}
-        file interactive-commands {{
-            interactive-commands any;
-        }}
-    }}
-    license {{
-        autoupdate {{
-            url https://james.test.net/junos/key_retrieval;
-        }}
-    }}
-}}
-security {{
-    screen {{
-        ids-option untrust-screen {{
-            icmp {{
-                ping-death;
-            }}
-            ip {{
-                source-route-option;
-                tear-drop;
-            }}
-            tcp {{
-                syn-flood {{
-                    alarm-threshold 1024;
-                    attack-threshold 200;
-                    source-threshold 1024;
-                    destination-threshold 2048;
-                    queue-size 2000; ## Warning: 'queue-size' is deprecated
-                    timeout 20;
-                }}
-                land;
-            }}
-        }}
-    }}
-    policies {{
-        from-zone trust to-zone trust {{
-            policy default-permit {{
-                match {{
-                    source-address any;
-                    destination-address any;
-                    application any;
-                }}
-                then {{
-                    permit;
-                }}
-            }}
-        }}
-        from-zone trust to-zone untrust {{
-            policy default-permit {{
-                match {{
-                    source-address any;
-                    destination-address any;
-                    application any;
-                }}
-                then {{
-                    permit;
-                }}
-            }}
-        }}
-    }}
-    zones {{
-        security-zone trust {{
-            tcp-rst;
-            interfaces {{
-                ge-0/0/0.0;
-            }}
-        }}
-        security-zone untrust {{
-            screen untrust-screen;
-        }}
-    }}
-}}
-interfaces {{
-    ge-0/0/0 {{
-        unit 0 {{
-            family inet {{
-                dhcp;
-            }}
-        }}
-    }}
-    fxp0 {{
-        unit 0 {{
-            family inet {{
-                dhcp;
-            }}
-        }}
-    }}
-}}
-	  '''.format(**data)
-
-    return config
