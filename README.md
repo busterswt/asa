@@ -46,3 +46,6 @@ optional arguments:
 ```
   
 The script will build a firewall and load balancer in standalone or HA mode. There is still work to do to bootstrap the instances.
+
+Bugs:
+https://bugs.launchpad.net/nova/+bug/1572593

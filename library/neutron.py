@@ -1,5 +1,6 @@
 import requests, json, sys
 from clients import neutron
+import netaddr
 
 def create_network(network_name,**kwargs):
     # Creates a network and returns the object
@@ -149,9 +150,25 @@ def get_gateway_from_port(port_id):
     subnet_id = port_details["port"]["fixed_ips"][0]["subnet_id"]    
     subnet_details = neutron.show_subnet(subnet_id)
     gateway_ip = subnet_details["subnet"]["gateway_ip"]
-    subnet_mask = get_netmask_from_subnet(subnet_id)
+#    subnet_mask = get_netmask_from_subnet(subnet_id)
 
-    return gateway_ip,subnet_mask
+    return gateway_ip
+
+def get_subnet_from_port(port_id):
+
+    port_details = neutron.show_port(port_id)
+    subnet_id = port_details["port"]["fixed_ips"][0]["subnet_id"]
+
+    return subnet_id
+
+def get_network_netmask_from_subnet(subnet_id):
+    # Get address string and CIDR string from command line
+    subnet_details = neutron.show_subnet(subnet_id)
+    subnet_cidr = subnet_details["subnet"]["cidr"]
+
+    network_addr = str(netaddr.IPNetwork(subnet_cidr).network)
+    network_netmask = str(netaddr.IPNetwork(subnet_cidr).netmask)
+    return network_addr,network_netmask
 
 def get_netmask_from_subnet(subnet_id):
     
@@ -178,3 +195,17 @@ def list_ports(device_id=None,type=None):
         ports = neutron.list_ports(device_id=device_id)
     return ports
 
+def update_port_dns_name(port_id,hostname):
+    req = {
+        "port": {
+            "dns_name": hostname
+        }
+    }
+
+    return neutron.update_port(port_id,req)
+
+def delete_port(port_id):
+    return neutron.delete_port(port_id)
+
+def delete_network(network_id):
+    return neutron.delete_network(network_id)

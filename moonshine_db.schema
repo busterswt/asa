@@ -22,3 +22,10 @@ create table ports (
     device_number         text,
     instance_id		  text
 );
+
+create table instances (
+    instance_id           text primary key,
+    account_number        integer,
+    environment_number    text,
+    device_number         text
+);

@@ -1,101 +1,183 @@
+from library.database import *
+import library.neutron as neutronlib  
 import textwrap, json, sys
+import netaddr
 
-def generate_configuration(instance_blob,self_ports,peer_ports):
+def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
+    dbmgr = DatabaseManager(db_filename)
     # The ASA configuration will match between devices with the exception of device priority
 
+    # Assemble device information that will be passed to other functions
+    data = {}
+    data['hostname'] = instance_blob['environment_number'] + '-' + instance_blob['account_number'] + '-' + instance_blob['device_number']
+    data['priority'] = instance_blob['device_priority']
+
+    # Determine device IPs based on port.
+    # Build management interface dict first
+    if 'standalone' in data['priority']:
+	subnet_id = neutronlib.get_subnet_from_port(self_ports[0])
+	data['standby_keyword'] = ''
+        data['pri_mgmt_addr'] = neutronlib.get_fixedip_from_port(self_ports[0])
+        data['pri_mgmt_netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+	data['sec_mgmt_address'] = ''
+        data['mgmt_gateway'] = neutronlib.get_gateway_from_port(self_ports[0])
+    elif 'primary' in data['priority']:
+	subnet_id = neutronlib.get_subnet_from_port(self_ports[0])
+	data['standby_keyword'] = 'standby'
+	data['pri_mgmt_addr'] = neutronlib.get_fixedip_from_port(self_ports[0])
+	data['pri_mgmt_netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+	data['sec_mgmt_address'] = neutronlib.get_fixedip_from_port(peer_ports[0])
+	data['mgmt_gateway'] = neutronlib.get_gateway_from_port(self_ports[0])
+    elif 'secondary' in data['priority']:
+	subnet_id = neutronlib.get_subnet_from_port(self_ports[0])
+        data['standby_keyword'] = 'standby'
+        data['pri_mgmt_addr'] = neutronlib.get_fixedip_from_port(peer_ports[0])
+        data['pri_mgmt_netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+        data['sec_mgmt_address'] = neutronlib.get_fixedip_from_port(self_ports[0])
+        data['mgmt_gateway'] = neutronlib.get_gateway_from_port(self_ports[0])
+
     # Generate the base configuration
-    configuration = generate_base_config(instance_blob)
+    configuration = generate_base_config(data)
 
     # Generate the interface configuration
-    configuration += generate_interface_config(instance_blob,self_ports,peer_ports)
+    configuration += generate_management_interface_config(data)
 
-    print configuration
-    sys.exit(1)
+    # Now, let's build all of the other interfaces
+    configuration += generate_interface_config(db_filename,data,self_ports,peer_ports)
+
+    # Generate object groups
+    configuration += generate_inside_object_groups(db_filename,self_ports)
+
     # Generate more configuration
-    config += generate_access_config(data)
-    config += generate_logging_config()
-    config += generate_ntp_config()
-    config += generate_security_config()
-    config += generate_vpn_config(data)
+#    config += generate_access_config(data)
+    configuration += generate_logging_config()
+    configuration += generate_ntp_config()
+    configuration += generate_security_config()
+#    config += generate_vpn_config(data)
 
-    # Gerate failover configuration (if ha)
-    if ha:
-	config += generate_failover_config(data)
+    return configuration
 
-    return config
-
-def generate_asa_nat_config(data):
-    nat_config = '''
-        ! Begin NAT configuration
-        ! At this time, only dynamic NAT is supported
-        nat (inside,outside) after-auto source dynamic any interface
-    '''.format(**data)
-
-def generate_interface_config(instance_blob,self_ports,peer_ports):
-    # Generates ha interface configuration
-    # The first interface must be management
-   
-    # Given the port ID, determine the ip address and netmask
-
-
-    # Determine the peer interface ip (should be the same for primary or secondary, but the ports passed will be swapped
-    if 'primary' in instance_blob['device_priority']:
-	print "Device is primary"
-    elif 'secondary' in instance_blob['device_priority']:
-	print "Device is secondary"
-    else:
-	print "wrong priority for this function!"
-    if peer_ports is not None:    
-
-    management_interface = '''
+def generate_management_interface_config(data):
+    management_interface = """
         ! Begin interface configuration.
         ! Interface m0/0 is management (first attached interface)
         interface management0/0
         nameif management
         management-only
-        security-level 10
-        ip address {fw_mgmt_primary_address} {fw_mgmt_mask} standby {fw_mgmt_secondary_address}
+        security-level 90
+        ip address {pri_mgmt_addr} {pri_mgmt_netmask} {standby_keyword} {sec_mgmt_address}
         no shut
-        route management 0.0.0.0 0.0.0.0 {fw_mgmt_gateway}
-    '''.format(
+        route management 0.0.0.0 0.0.0.0 {mgmt_gateway}
+        """.format(**data)
 
-        ! Interface g0/0 must be OUTSIDE (second attached interface)
-        interface GigabitEthernet0/0
-        no shut
-        nameif OUTSIDE
-        security-level 0
-        ip address {fw_outside_primary_address} {fw_outside_mask} standby {fw_outside_secondary_address}
-        route outside 0.0.0.0 0.0.0.0 {fw_outside_gateway}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp OUTSIDE
-        ip verify reverse-path interface OUTSIDE
-        access-group 101 in interface OUTSIDE
+    return textwrap.dedent(management_interface)
 
-        ! Interface g0/1 must be INSIDE (third attached interface)
-        interface GigabitEthernet0/1
-        no shut
-        nameif INSIDE
-        security-level 100
-        ip address {fw_inside_primary_address} {fw_inside_netmask} standby {fw_inside_secondary_address}
-        ! Disable proxy ARP ticket 140923-08822
-        sysopt noproxyarp INSIDE
-        ip verify reverse-path interface INSIDE
-        access-group 100 in interface INSIDE
+def generate_inside_object_groups(db_filename,self_ports):
+    # Generates object groups for inside networks
+    # (todo) Fix this so it only looks at inside networks
+    dbmgr = DatabaseManager(db_filename)
+    obj_groups = ""    
+    data = {}
 
-        ! Interface g0/2 must be failover (third attached interface)
-        interface GigabitEthernet0/2
-        no shut
-          '''.format(**data)
+    for port_id in self_ports:
+        result = dbmgr.query("select port_name from ports where port_id=?",
+                                ([port_id]))
 
-    return textwrap.dedent(ha_config)
+	data['port_name'] = result.fetchone()[0]	
 
-def generate_base_config(instance_blob):
+	if "outside" or "management" or "failover" not in data['port_name']:
+	    subnet_id = neutronlib.get_subnet_from_port(port_id)
+	    data['network_addr'],data['network_netmask'] = neutronlib.get_network_netmask_from_subnet(subnet_id)
+
+            obj_groups += """
+                object network obj-{port_name}-network
+                subnet {network_addr} {network_netmask}
+            """.format(**data)
+
+    return obj_groups
+
+def generate_interface_config(db_filename,data,self_ports,peer_ports):
+    # (todo) move the ACL config to its own function
+    dbmgr = DatabaseManager(db_filename)
+
+    self_ports.pop(0) # Pop out the first port, since we've already handled management interface
+    if peer_ports: # If empty, peer_ports will evaluate as false
+        peer_ports.pop(0)
+
+    # Generate the interface configuration as well as interface ACL
+    interface_config = ""
+    index = 0 # Start with the 0 index
+    for port_id in self_ports:
+        result = dbmgr.query("select port_name from ports where port_id=?",
+				([port_id]))
+        port_name = result.fetchone()[0]
+
+	subnet_id = neutronlib.get_subnet_from_port(port_id)
+	interface = {}
+	interface['port_name'] = port_name
+
+        if 'standalone' in data['priority']:
+	    interface['standby_keyword'] = ''
+	    interface['pri_addr'] = neutronlib.get_fixedip_from_port(self_ports[index])
+            interface['netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+            interface['sec_addr'] = ''
+        elif 'primary' in data['priority']:
+            interface['standby_keyword'] = 'standby'
+            interface['pri_addr'] = neutronlib.get_fixedip_from_port(self_ports[index])
+            interface['netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+            interface['sec_addr'] = neutronlib.get_fixedip_from_port(peer_ports[index])
+	elif 'secondary' in data['priority']:
+            interface['standby_keyword'] = 'standby'
+            interface['pri_addr'] = neutronlib.get_fixedip_from_port(peer_ports[index])
+            interface['netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
+            interface['sec_addr'] = neutronlib.get_fixedip_from_port(self_ports[index])
+
+	# Only generate full interface for non-failover port
+	if not 'failover' in interface['port_name']:
+            interface_config += """
+                ! Interfaces built in order as passed to script. 
+                ! First is management, then outside, then inside, etc.
+                ! Failover interface must be named 'failover'
+                interface GigabitEthernet0/{0}
+                no shut
+                nameif {port_name}
+                security-level {0}
+                ip address {pri_addr} {netmask} {standby_keyword} {sec_addr}
+                ! Disable proxy ARP ticket 140923-08822
+                sysopt noproxyarp {port_name}
+                ip verify reverse-path interface {port_name}
+
+                access-list {port_name}_in permit ip any any
+                access-group {port_name}_in in interface {port_name}
+            """.format(index,**interface)
+
+	if 'failover' in interface['port_name']:
+	    interface['failover_interface'] = 'GigabitEthernet0/%d' % index
+
+	    interface_config += """
+                interface GigabitEthernet0/{0}
+                no shut
+            """.format(index)
+
+	    # Generate and return the failover configuration
+            interface_config += generate_failover_configuration(data['priority'],interface)
+
+	index += 1 # Iterate the index and loop back through
+
+    return textwrap.dedent(interface_config)
+
+def generate_asa_nat_config(data):
+    # (todo) get the port list, pop off first, use second to build the NATs (second is outside)
+    nat_config = """
+        ! Begin NAT configuration
+        ! At this time, only dynamic NAT is supported
+        nat (inside,outside) after-auto source dynamic any interface
+    """.format(**data)
+
+def generate_base_config(data):
     # Generates the base config of a Cisco ASA
 
-    data = {}
-    data['hostname'] = instance_blob['environment_number'] + '-' + instance_blob['account_number'] + '-' + instance_blob['device_number']
-
-    configuration = '''
+    configuration = """
         ! Begin template
         hostname {hostname}
         domain-name IAD3.RACKSPACE.COM
@@ -143,13 +225,13 @@ def generate_base_config(instance_blob):
 
         ! User configuration
         username moonshine password openstack12345 privilege 15
-          '''.format(**data)
+          """.format(**data)
 
     return textwrap.dedent(configuration)
 
 def generate_access_config(data):
-    access_config = '''
-
+    # (todo) generate this using correct port info
+    access_config = """
 	! ACL Configuration
         object-group icmp-type ICMP-ALLOWED
         description "These are the ICMP types Rackspace allows by default"
@@ -371,14 +453,12 @@ def generate_access_config(data):
 
         access-list 100 permit ip any any
 
-        object network obj-INSIDE-NETWORK
-        subnet {fw_inside_net_addr} {fw_inside_netmask}
-          '''.format(**data)
+          """.format(**data)
 
     return textwrap.dedent(access_config)
 
 def generate_logging_config():
-    logging_config = '''
+    logging_config = """
         ! Logging
         logging enable
         logging timestamp
@@ -392,12 +472,12 @@ def generate_logging_config():
         no logging message 769004
         ! Prevent TCP syslog from taking down box
         logging permit-hostdown
-          '''
+        """
 
     return textwrap.dedent(logging_config)
 
 def generate_ntp_config():
-    ntp_config = '''
+    ntp_config = """
         ! Clock Settings
         clock timezone CST -6
         clock summer-time CDT recurring
@@ -408,12 +488,11 @@ def generate_ntp_config():
         ntp server 120.136.32.62 source OUTSIDE
         ntp server 119.9.60.62 source OUTSIDE
         ntp server 69.20.0.164 source OUTSIDE prefer
-          '''
-
+        """
     return textwrap.dedent(ntp_config)
 
 def generate_security_config():
-    security_config = '''
+    security_config = """
         ! Timeout values
         console timeout 5
         ssh timeout 15
@@ -487,12 +566,12 @@ def generate_security_config():
         ! OOB From RAX
         ssh 10.0.0.0 255.240.0.0 management
         ssh timeout 15
-          '''
+          """
 
     return textwrap.dedent(security_config)
 
 def generate_vpn_config(data):
-    vpn_config = '''
+    vpn_config = """
         ! VPN configuration
         crypto ipsec ikev1 transform-set AES256-SHA esp-aes-256 esp-sha-hmac
         crypto ipsec ikev1 transform-set AES256-MD5 esp-aes-256 esp-md5-hmac
@@ -595,20 +674,20 @@ def generate_vpn_config(data):
         aaa authentication ssh console LOCAL
         aaa authentication http console LOCAL
         aaa authorization command LOCAL
-          '''.format(**data)
+          """.format(**data)
 
     return textwrap.dedent(vpn_config)
 
-def generate_failover_config(data):
-    failover_config = '''
+def generate_failover_configuration(priority,interface):
+    failover_config = """
         failover
-        failover lan unit {priority}
-        failover lan interface LANFAIL GigabitEthernet0/2
+        failover lan unit {0}
+        failover lan interface LANFAIL {failover_interface}
         failover polltime unit 1 holdtime 5
         failover key openstack
         failover replication http
-        failover link LANFAIL GigabitEthernet0/2
-        failover interface ip LANFAIL {fw_failover_primary_address} {fw_failover_netmask} standby {fw_failover_secondary_address}
-        '''.format(**data)
+        failover link LANFAIL {failover_interface}
+        failover interface ip LANFAIL {pri_addr} {netmask} {standby_keyword} {sec_addr}
+        """.format(priority,**interface)
 
     return textwrap.dedent(failover_config)

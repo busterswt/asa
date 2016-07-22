@@ -77,6 +77,11 @@ def boot_instance(name,image,flavor,az,**kwargs):
     :param kwargs: Optional additional arguments for server creation
     """
 
+    # (todo) fix the client loader. not sure this is necessary
+    _keystone_creds = clients.get_keystone_creds()
+    sess = clients.create_session(**_keystone_creds)
+    nova = clients.make_nova_client(session=sess)
+
     # Define optional server arguments
     server_args = {}
 
@@ -84,9 +89,8 @@ def boot_instance(name,image,flavor,az,**kwargs):
     # Ports are passed in a specific order based on the server
     if kwargs.get('ports') is not None:
         server_args['nics'] = []
-        for port in kwargs.get('ports'):
-            for portname,portid in port.items():
-		server_args['nics'].append({'port-id':portid})
+        for portid in kwargs.get('ports'):
+	    server_args['nics'].append({'port-id':portid})
 
     # Check to see if networks have been passed during boot
     # (todo) ensure this doesn't overwrite ports in the dict already
@@ -121,7 +125,7 @@ def boot_instance(name,image,flavor,az,**kwargs):
 	sess = clients.create_session(**_keystone_creds)
 	nova = clients.make_nova_client(session=sess)
 
-#    print _keystone_creds # Debugging
+    print _keystone_creds # Debugging
     server = nova.servers.create(name=name,
 		                image=image,
                 		flavor=flavor,
@@ -160,4 +164,7 @@ def list_instances():
     servers = nova.servers.list(search_opts=search_opts)
     return servers
 
+
+def delete_instance(instance_id):
+    return nova.servers.delete(instance_id)
 

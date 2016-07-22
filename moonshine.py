@@ -6,10 +6,16 @@ import requests, json, sys
 import argparse, time, logging
 from prettytable import PrettyTable
 import library.neutron as neutronlib
-import library.config as configlib
+from library.database import *
+#import library.config as configlib
 import library.nova as novalib
 import library.keystone as keystonelib
 from library.printf import printf
+# Config libraries
+import library.config.asa as asa
+import library.config.ltm as ltm
+import library.config.netscaler as netscaler
+import library.config.srx as srx
 
 # Initialize global variables that will be used throughout
 # Best practice? Dunno.
@@ -18,24 +24,6 @@ _ports = {}
 _metadata = {}
 db_filename = './moonshine_db.sqlite'
 schema_filename = './moonshine_db.schema'
-
-class DatabaseManager(object):
-    def __init__(self, db):
-        self.conn = sqlite3.connect(db)
-        self.conn.execute('pragma foreign_keys = on')
-        self.conn.commit()
-        self.cur = self.conn.cursor()
-
-    def query(self, arg, bindings=None):
-	if bindings is not None:
-	    self.cur.execute(arg,bindings)
-	else:	
-            self.cur.execute(arg)
-        self.conn.commit()
-        return self.cur
-
-    def __del__(self):
-        self.conn.close()
 
 def create_project(account_number):
     # (todo) Only create project when one doesn't exist for the account number being passed.
@@ -68,8 +56,10 @@ def create_project(account_number):
 def create_networks(network_blob):
     dbmgr = DatabaseManager(db_filename)
 
+    details = PrettyTable(["account", "environment", "name", "cidr", "network_id", "subnet_id"])
+
     for m_network in network_blob["networks"]:
-	# Finds the true CIDR (bit boundary) for given CIDR/IP/Address (Data Validation)
+	# Finds the true CIDR (bit boundary) for given CIDR/IP/Address
 	real_cidr = str(netaddr.IPNetwork(m_network["cidr"]).cidr)
 
 	# Validates a network matching env and cidr doesn't already exist.
@@ -82,7 +72,7 @@ def create_networks(network_blob):
 	    print "Network with CIDR %s already exists as part of environment %s! Not creating" % (real_cidr,network_blob["environment_number"])
 
 	else:
-            print "Network does not exist in database. Creating new network."
+#            print "Network does not exist in database. Creating new network."
     	    try:
 		network_args = {}
 		# Use the network type set by user
@@ -96,13 +86,13 @@ def create_networks(network_blob):
                 q_network = neutronlib.create_network(network_name=m_network["network_name"],
 						**network_args) # need to set tenant id
 
-                print "Created network %s in Neutron" % (q_network["network"]["id"])
+#                print "Created network %s in Neutron" % (q_network["network"]["id"])
 
 		# Creates the subnet in Neutron
 		q_subnet = neutronlib.create_subnet(network_id=q_network["network"]["id"],
 							cidr=real_cidr) # Need to set tenant id
 
-		print "Created subnet %s in Neutron" % (q_subnet["subnet"]["id"])
+#		print "Created subnet %s in Neutron" % (q_subnet["subnet"]["id"])
 
 	        # Update sqlite database
 	        try:
@@ -112,14 +102,22 @@ def create_networks(network_blob):
 					network_blob["account_number"],network_blob["environment_number"],
 					m_network["network_name"],real_cidr,q_network["network"]["provider:segmentation_id"],
 					q_network["network"]["provider:network_type"],q_subnet["subnet"]["id"]]))
+
+		    details.add_row([network_blob["account_number"],network_blob["environment_number"],
+					m_network["network_name"],real_cidr,q_network["network"]["id"],q_subnet["subnet"]["id"]])
 	        except Exception, e:
 		    print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
 	    except Exception, e:
 	        # (todo) Rollback neutron net-create, too?
 	        print "Error! %s" % e	
+
+    # Print the details of the networks created
+    print "Networks created:"
+    print details 
 	
 def create_ports(port_blob):
     dbmgr = DatabaseManager(db_filename)
+    details = PrettyTable(["account", "environment", "device", "name", "port_id", "network_id"])
 
     for m_port in port_blob["ports"]:
 
@@ -132,22 +130,21 @@ def create_ports(port_blob):
             print "Device '%s' already has a port on the '%s' network in environment %s! Not creating" % (port_blob["device_number"],m_port["network_name"],port_blob["environment_number"])
 
         else:
-            print "Device '%s' in environment '%s' does not have a port in the '%s' network in the database. Creating new port." % \
-			(port_blob["device_number"],port_blob["environment_number"],m_port["network_name"])            
+#            print "Device '%s' in environment '%s' does not have a port in the '%s' network in the database. Creating new port." % \
+#			(port_blob["device_number"],port_blob["environment_number"],m_port["network_name"])            
 	    try:
 		# Let's see if using the generic outside or management network. If so, those aren't bound to environments
 		# (todo) Find a better way to do this
-		if m_port["network_name"] == "outside" or "management":
+		if m_port["network_name"] in ('outside', 'management'):
 		    data = dbmgr.query("select network_id from networks where network_name=?",
                                 ([m_port["network_name"]]))
 		else:
 		    # Get the network id based on environment number and network name
-		    data = dbmgr.query("select network_id from networks where environment_number=? and network_name=?",
-                                ([port_blob["environment_number"],m_port["network_name"]]))
+		    data = dbmgr.query("SELECT network_id FROM networks WHERE account_number=? AND environment_number=? AND network_name=?",
+                                ([port_blob["account_number"],port_blob["environment_number"],m_port["network_name"]]))
 
 		# Validate a network ID is returned
 	        network_id = data.fetchone() # How to return none if not found
-
 		if network_id is None:	
 	    	    print "Error! Network '%s' in environment '%s' does not exist in the database. Please create the network and try again." % \
 				(m_port["network_name"],port_blob["environment_number"])
@@ -166,32 +163,41 @@ def create_ports(port_blob):
                 # Creates the port in Neutron
                 q_port = neutronlib.create_port(network_id=network_id[0],**port_args) # need to set tenant id
 
-                print "Created port %s in Neutron" % (q_port["port"]["id"])
+#                print "Created port %s in Neutron" % (q_port["port"]["id"])
 		
 
                 # Update sqlite database
                 try:
                     dbmgr.query("insert into ports (port_id,network_id,tenant_id,account_number,environment_number, \
-                                        network_name,fixed_ip,device_number) values (?,?,?,?,?,?,?,?)",
+                                        network_name,fixed_ip,device_number,port_name) values (?,?,?,?,?,?,?,?,?)",
                                         ([q_port["port"]["id"],q_port["port"]["network_id"],q_port["port"]["tenant_id"],
                                         port_blob["account_number"],port_blob["environment_number"],
                                         m_port["network_name"],q_port["port"]["fixed_ips"][0]["ip_address"],
-                                        port_blob["device_number"]]))
+                                        port_blob["device_number"],m_port["network_name"]]))
+
+		    details.add_row([port_blob["account_number"],port_blob["environment_number"],port_blob["device_number"],
+                                        m_port["network_name"],q_port["port"]["id"],q_port["port"]["network_id"]])
+
                 except Exception, e:
                     print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
             except Exception, e:
                 # (todo) Rollback neutron port-create, too?
                 print "Error! %s" % e
 
+    # Print the details of the ports created
+    print "Ports created:"
+    print details
 
 def create_instance(instance_blob):
     dbmgr = DatabaseManager(db_filename)
-    port_exists = True
+    details = PrettyTable(["account", "environment", "device", "hostname", "device_type", "priority", "zone", "management_ip"])
 
+    # (todo) Check to see if an instance with that device number exists!
+
+    # Validates a port matching device number and network name exists
+    # Otherwise, kick back to the user to create the port first
+    port_exists = True # Initialize value
     for m_port in instance_blob["ports"]:
-	print m_port
-        # Validates a port matching device number and network name exists
-        # Otherwise, kick back to the user to create the port first
         data = dbmgr.query("select count(*) from ports where device_number=? and environment_number=? and network_name=?",
                                 (instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
 
@@ -202,9 +208,9 @@ def create_instance(instance_blob):
             port_exists = False
 	continue # Continue the loop
 
-    if port_exists:
     # If we're here, it should mean all ports are accounted for.
-    # (todo) ensure that we also check for peer ports, too, above. Those will be needed to generate the configuration.
+    # (todo) ensure that we also check for peer ports, too, above. Those will be needed to generate the configuration. 
+    if port_exists:
         try:
             # Find the corresponding port IDs and build a list
             # (todo) optimize this
@@ -214,8 +220,6 @@ def create_instance(instance_blob):
         	                      	(instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
 	        port = data.fetchone()
 	        ports.append(port[0])
-	
- 	    print ports
 	except Exception ,e:
 	    print 'Unable to determine existence of ports %s' % e 
 
@@ -229,11 +233,161 @@ def create_instance(instance_blob):
         sys.exit(1)
 
 
-    # (todo) generate device configuration - new function?
-    # (todo) boot instance (pass hostname, ports, config) - new function?
+    # Generate device configuration
+    device_config = generate_configuration(instance_blob)
+
+    # Determine availability zone
+    if 'secondary' in instance_blob["device_priority"]:
+	zone = 'ZONE-B'
+    else:
+	zone = 'ZONE-A'
+
+    # Boot the instance
+    try:
+        hostname = instance_blob["environment_number"] + '-' + instance_blob["account_number"] + '-' + instance_blob["device_number"]
+
+	# Due to Nova bug, we need to update the hostnames on the ports
+	for port_id in ports:
+	    neutronlib.update_port_dns_name(port_id,hostname)
+
+        if 'asav' in instance_blob['device_model']:
+	    instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive='True',
+					file_path='day0',file_contents=device_config,ports=ports,
+                                        az=zone)
+        elif 'srx' in instance_blob['device_model']:
+            print 'srx'
+        elif 'netscaler' in instance_blob['device_model']:
+            print 'citrix'
+        elif 'ltm' in instance_blob['device_model']:
+            print 'f5'
+
+	# Update sqlite database
+        try:
+            dbmgr.query("insert into instances (instance_id,account_number,environment_number,device_number) values (?,?,?,?)",
+                         ([instance.id,instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"]]))
+            details.add_row([instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"],
+                              hostname,instance_blob["device_type"],instance_blob["device_priority"],zone,""])
+        except Exception, e:
+            print "Unable to update local database while booting the instance. Moonshine and Nova could be out of sync! %s" % e
+
+        # Print the details of the instance created
+        print "Instance details:"
+        print details
+	return instance
+
+    except Exception, e:
+	logging.exception("Unable to boot instance! %s" % e)
+
+def generate_configuration(instance_blob):
+    """
+    :desc: Generates device configuration. Not really pluggable. Only works with certain device types/models.
+    """
+
+    # Determine if standalone, primary, secondary 
+    # Generate port ids. Send to the individual device functions
+    # return config
+    
+    # Generate the list of ports needed to build config
+    # Must be in exact order passed from user!
+    self_ports = []
+    peer_ports = []
+
+    try:
+        for m_port in instance_blob["ports"]:
+            data = dbmgr.query("select port_id from ports where device_number=? and environment_number=? and network_name=?",
+                                (instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
+            port = data.fetchone()
+            self_ports.append(port[0])
+        print self_ports
+    except Exception, e:
+        logging.exception("Unable to build self port list when generating config! %s") % e
+
+    # Generate the list of peer port IDs (if applicable)
+    if instance_blob.get("peer_device") is not None:
+	try:
+	    # Validate the peer has ports defined
+	    data = dbmgr.query("select count(*) from ports where device_number=? and environment_number=?",
+                                (instance_blob["peer_device"],instance_blob["environment_number"]))
+
+            count = data.fetchone()
+	    # (todo) Need to actually match the ports between devices. This is good enough for now.
+	    # This ought to match the networks between devices
+            if count[0] < 1:
+                print "Device '%s' does not have any ports defined in environment %s! Please create the port and try again." % \
+                                        (instance_blob["peer_device"],instance_blob["environment_number"])
+	    else:
+		for m_port in instance_blob["ports"]:
+		    data = dbmgr.query("select port_id from ports where device_number=? and environment_number=? and network_name=?",
+                               	        (instance_blob["peer_device"],instance_blob["environment_number"],m_port["network_name"]))
+	            port = data.fetchone()
+		    peer_ports.append(port[0]) 
+                print peer_ports
+        except Exception, e:
+	    logging.exception("Unable to build peer port list when generating config! %s") % e
+
+    # If we're here, it means we're ready to generate the config for the device
+    # Test for various devices
+    if 'asav' in instance_blob['device_model']:
+	device_config = asa.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
+    elif 'srx' in instance_blob['device_model']:
+	print 'srx'
+    elif 'netscaler' in instance_blob['device_model']:
+	print 'citrix'
+    elif 'ltm' in instance_blob['device_model']:
+	print 'f5'
+
+    return device_config
 
 
+def delete_environment(environment_number):
+    dbmgr = DatabaseManager(db_filename)
+    # Delete all resources related to an environment
+    # instances, ports, then networks
 
+    # Instances
+    try: 
+        result = dbmgr.query("select instance_id from instances where environment_number=?",
+                                ([environment_number]))
+	instances = result.fetchall()
+
+	for instance_id in instances:
+	    novalib.delete_instance(instance_id)
+	    dbmgr.query("delete from instances where instance_id=?",
+                         (instance_id))
+	    print "Deleted instance %s" % instance_id
+
+    except Exception, e:
+	logging.exception('Unable to delete instance! Check sync. %s' % e)
+
+    # Ports
+    try:
+        result = dbmgr.query("select port_id from ports where environment_number=?",
+                                ([environment_number]))
+        ports = result.fetchall()
+
+        for port_id in ports:
+	    neutronlib.delete_port(port_id)
+            dbmgr.query("delete from ports where port_id=?",
+                             (port_id))
+            print "Deleted port %s" % port_id
+
+    except Exception, e:
+        logging.exception('Unable to delete port! Check sync. %s' % e)
+
+    # Networks
+    try:
+        result = dbmgr.query("select network_id from networks where environment_number=?",
+                                ([environment_number]))
+        networks = result.fetchall()
+
+        for network_id in networks:
+            neutronlib.delete_network(network_id)
+            dbmgr.query("delete from networks where network_id=?",
+                             (network_id))
+            print "Deleted network %s" % network_id
+
+    except Exception, e:
+        logging.exception('Unable to delete network! Check sync. %s' % e)
 
 
 def create_fw_networks(ha,lb):    
@@ -868,26 +1022,31 @@ def create(args):
             network_id = _networks['lb_inside_network_id']
         launch_instance(network_id,vm_image,vm_flavor)
 
-def list_devices():
-    servers = novalib.list_instances()
-
+def list_devices(db_filename):
+    # Returns a list of instances known to Moonshine
+    dbmgr = DatabaseManager(db_filename)
     details = PrettyTable(["id", "environment", "account", "device", "name", "type", "management address"])
     details.align["id"] = "l" # left
 
-    for server in servers:
-	if server.metadata.get('hostname') is not None:
-   	    id = server.id
-	    env = server.metadata.get('env')
-	    account = server.metadata.get('account_number')
- 	    device = server.metadata.get('device')
-	    name = server.metadata.get('hostname')
-	    type = server.metadata.get('type')
-	    mgmt = ''
+    # Return instances in the local DB
+    result = dbmgr.query("select * from instances")
 
-	    ports = neutronlib.list_ports(device_id=server.id,type='management')
-	    for port in ports["ports"]:
-		mgmt = port["fixed_ips"][0]["ip_address"]
-            details.add_row([id,env,account,device,name,type,mgmt])
+    servers = result.fetchall()
+    for server in servers:
+	print server
+	id = server[0]
+	env = server[1]
+	account = server[2]
+ 	device = server[3]
+	name = server[4]
+	type = server[5]
+
+	# Find the management port in local DB
+	result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([server.device_number]))
+	port_id = result.fetchone()[0]
+	management_ip = get_fixedip_from_port(port_id)
+
+        details.add_row([id,env,account,device,name,type,management_ip])
 
     print details
 
@@ -941,6 +1100,9 @@ if __name__ == "__main__":
     # Should only be done on first execution
     build_db(db_filename,schema_filename)
 
+    # Open DB connection
+    dbmgr = DatabaseManager(db_filename)
+
     parser = argparse.ArgumentParser(prog='moonshine',description='Proof of concept instance deployment \
 						tool used to bootstrap and deploy virtual network devices, \
 						including firewalls and load balancers')
@@ -958,17 +1120,20 @@ if __name__ == "__main__":
     # Moving to creating ports first, then can create instances at-will
     # (todo) use description of the port (with dict) to associate with device and account number
     createports_parser = subparsers.add_parser('create-ports', help='Create virtual network port(s)')
-    createports_parser.add_argument('-p','--ports',type=json.loads,
+    createports_parser.add_argument('-j','--json',type=json.loads,
 				dest='port_blob',help='Specifies a list of dict key/value pairs for ports using net-id and fixed-ip')
 
     createnetworks_parser = subparsers.add_parser('create-networks', help='Create virtual network(s)')
-    createnetworks_parser.add_argument('-n','--networks',type=json.loads,
+    createnetworks_parser.add_argument('-j','--json',type=json.loads,
                                 dest='network_blob',help='Specifies a list of dict key/value pairs for network using name and cidr')
 
     createinstance_parser = subparsers.add_parser('create-instance', help='Create virtual instance')
-    createinstance_parser.add_argument('-i','--info',type=json.loads,
+    createinstance_parser.add_argument('-j','--json',type=json.loads,
                                 dest='instance_blob',help='Specifies json for instance')
 
+    deleteenvironment_parser = subparsers.add_parser('delete-environment', help='Remove all resources related to an environment')
+    deleteenvironment_parser.add_argument('-e','--environment',
+                                dest='environment_number',help='Specify DCX environment number', required=True)
 
 
 
@@ -1027,8 +1192,12 @@ if __name__ == "__main__":
     except Exception, e:
         logging.exception("Error: Unable to create instance! %s" % e)    
 
-
-
+    # delete-environment
+    try:
+        if args.command == 'delete-environment':
+            delete_environment(args.environment_number)
+    except Exception, e:
+        logging.exception("Error: Unable to delete environment! %s" % e)
 
 
 
@@ -1053,7 +1222,7 @@ if __name__ == "__main__":
     # The LIST parser
     try:
 	if args.command == 'list':
-	    list_devices()
+	    list_devices(db_filename)
 	    sys.exit(1)
     except Exception, e:
 	logging.exception("Oops! Unable to list! %s" % e)
