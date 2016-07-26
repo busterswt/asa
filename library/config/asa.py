@@ -45,6 +45,9 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     # Now, let's build all of the other interfaces
     configuration += generate_interface_config(db_filename,data,self_ports,peer_ports)
 
+    # Generate default route
+    configuration += generate_default_route(db_filename,instance_blob['device_number'])
+
     # Generate object groups
     configuration += generate_inside_object_groups(db_filename,self_ports)
 
@@ -53,6 +56,7 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     configuration += generate_logging_config()
     configuration += generate_ntp_config()
     configuration += generate_security_config()
+    configuration += generate_aaa_configuration()
 #    config += generate_vpn_config(data)
 
     return configuration
@@ -71,6 +75,25 @@ def generate_management_interface_config(data):
         """.format(**data)
 
     return textwrap.dedent(management_interface)
+
+def generate_default_route(db_filename,device_number):
+    # Generates default route for outside interface
+    dbmgr = DatabaseManager(db_filename)
+    data = {}
+    result = dbmgr.query("select port_id from ports where port_name='outside' and device_number=?",
+                                ([device_number]))
+
+    data['port_id'] = result.fetchone()[0]
+    data['gateway_ip'] = neutronlib.get_gateway_from_port(data['port_id'])
+
+    if data['gateway_ip'] is not None:
+	route = """
+	    route outside 0.0.0.0 0.0.0.0 {gateway_ip}
+	""".format(**data)
+    else:
+	route = ""
+
+    return textwrap.dedent(route)
 
 def generate_inside_object_groups(db_filename,self_ports):
     # Generates object groups for inside networks
@@ -663,20 +686,25 @@ def generate_vpn_config(data):
         crypto isakmp nat-traversal 20
         crypto ikev1 enable OUTSIDE
         crypto map VPNMAP interface OUTSIDE
+	"""
+    return textwrap.dedent(vpn_config)
 
+def generate_aaa_configuration():
+
+    aaa_config = """
         ! AAA Configuration - Managed by RAX
         aaa-server RACKACS protocol tacacs+
         reactivation-mode depletion deadtime 5
-        aaa-server RACKACS (OUTSIDE) host 10.4.109.17 Ri7@4Zx8 timeout 2
-        aaa-server RACKACS (OUTSIDE) host 10.4.109.25 Ri7@4Zx8 timeout 2
+        aaa-server RACKACS (management) host 10.4.109.17 Ri7@4Zx8 timeout 2
+        aaa-server RACKACS (management) host 10.4.109.25 Ri7@4Zx8 timeout 2
 
         aaa authentication enable console LOCAL
         aaa authentication ssh console LOCAL
         aaa authentication http console LOCAL
         aaa authorization command LOCAL
-          """.format(**data)
+	"""
 
-    return textwrap.dedent(vpn_config)
+    return textwrap.dedent(aaa_config)
 
 def generate_failover_configuration(priority,interface):
     failover_config = """

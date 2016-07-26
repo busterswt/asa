@@ -125,7 +125,7 @@ def boot_instance(name,image,flavor,az,**kwargs):
 	sess = clients.create_session(**_keystone_creds)
 	nova = clients.make_nova_client(session=sess)
 
-    print _keystone_creds # Debugging
+#    print _keystone_creds # Debugging
     server = nova.servers.create(name=name,
 		                image=image,
                 		flavor=flavor,

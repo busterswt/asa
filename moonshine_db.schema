@@ -27,5 +27,10 @@ create table instances (
     instance_id           text primary key,
     account_number        integer,
     environment_number    text,
-    device_number         text
+    device_number         text,
+    peer_device           text,
+    device_name           text,
+    device_type           text,
+    device_model          text,
+    device_priority       text
 );

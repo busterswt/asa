@@ -259,14 +259,22 @@ def create_instance(instance_blob):
         elif 'netscaler' in instance_blob['device_model']:
             print 'citrix'
         elif 'ltm' in instance_blob['device_model']:
-            print 'f5'
+            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+                                        ports=ports,userdata=device_config,az=zone)
 
 	# Update sqlite database
         try:
-            dbmgr.query("insert into instances (instance_id,account_number,environment_number,device_number) values (?,?,?,?)",
-                         ([instance.id,instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"]]))
+            dbmgr.query("insert into instances (instance_id,account_number,environment_number,device_number,device_name,device_type,device_model,device_priority) values (?,?,?,?,?,?,?,?)",
+                         ([instance.id,instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"],hostname,
+			instance_blob["device_type"],instance_blob['device_model'],instance_blob["device_priority"]]))
+
+	    # Find the management port in local DB
+            result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([instance_blob['device_number']]))
+            port_id = result.fetchone()[0]
+            management_ip = neutronlib.get_fixedip_from_port(port_id)
+
             details.add_row([instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"],
-                              hostname,instance_blob["device_type"],instance_blob["device_priority"],zone,""])
+                              hostname,instance_blob["device_type"],instance_blob["device_priority"],zone,management_ip])
         except Exception, e:
             print "Unable to update local database while booting the instance. Moonshine and Nova could be out of sync! %s" % e
 
@@ -298,7 +306,7 @@ def generate_configuration(instance_blob):
                                 (instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
             port = data.fetchone()
             self_ports.append(port[0])
-        print self_ports
+#        print self_ports # Debug
     except Exception, e:
         logging.exception("Unable to build self port list when generating config! %s") % e
 
@@ -321,7 +329,7 @@ def generate_configuration(instance_blob):
                                	        (instance_blob["peer_device"],instance_blob["environment_number"],m_port["network_name"]))
 	            port = data.fetchone()
 		    peer_ports.append(port[0]) 
-                print peer_ports
+                #print peer_ports # Debug
         except Exception, e:
 	    logging.exception("Unable to build peer port list when generating config! %s") % e
 
@@ -334,7 +342,7 @@ def generate_configuration(instance_blob):
     elif 'netscaler' in instance_blob['device_model']:
 	print 'citrix'
     elif 'ltm' in instance_blob['device_model']:
-	print 'f5'
+	device_config = ltm.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
 
     return device_config
 
@@ -350,11 +358,11 @@ def delete_environment(environment_number):
                                 ([environment_number]))
 	instances = result.fetchall()
 
-	for instance_id in instances:
-	    novalib.delete_instance(instance_id)
+	for instance in instances:
+	    novalib.delete_instance(instance['instance_id'])
 	    dbmgr.query("delete from instances where instance_id=?",
-                         (instance_id))
-	    print "Deleted instance %s" % instance_id
+                         ([instance['instance_id']]))
+	    print "Deleted instance %s" % instance['instance_id']
 
     except Exception, e:
 	logging.exception('Unable to delete instance! Check sync. %s' % e)
@@ -365,11 +373,11 @@ def delete_environment(environment_number):
                                 ([environment_number]))
         ports = result.fetchall()
 
-        for port_id in ports:
-	    neutronlib.delete_port(port_id)
+        for port in ports:
+	    neutronlib.delete_port(port['port_id'])
             dbmgr.query("delete from ports where port_id=?",
-                             (port_id))
-            print "Deleted port %s" % port_id
+                             ([port['port_id']]))
+            print "Deleted port %s" % port['port_id']
 
     except Exception, e:
         logging.exception('Unable to delete port! Check sync. %s' % e)
@@ -380,272 +388,57 @@ def delete_environment(environment_number):
                                 ([environment_number]))
         networks = result.fetchall()
 
-        for network_id in networks:
-            neutronlib.delete_network(network_id)
+        for network in networks:
+            neutronlib.delete_network(network['network_id'])
             dbmgr.query("delete from networks where network_id=?",
-                             (network_id))
-            print "Deleted network %s" % network_id
+                             ([network['network_id']]))
+            print "Deleted network %s" % network['network_id']
 
     except Exception, e:
         logging.exception('Unable to delete network! Check sync. %s' % e)
 
+def delete_device(device_number):
+    dbmgr = DatabaseManager(db_filename)
+    # Delete all resources related to an environment
+    # instances, ports, then networks
 
-def create_fw_networks(ha,lb):    
-    global _networks
-    print "Creating virtual networks in Neutron for firewall(s)..."
-
-    # Create INSIDE (or transit) network
-    if lb is not None:
-	_networks['fw_inside_network_name'] = _metadata['hostname'] + "-FW-LB"
-	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'])
-	dhcp=False
-	inside_cidr = "192.168.254.0/24" # (todo) Allow this to be set on CLI
-	_networks['fw_inside_net_addr'] = "192.168.254.0" # (todo) make this discoverable
-	_networks['fw_inside_mask'] = "255.255.255.240"
-	_networks['fw_inside_gateway'] = "192.168.254.1" # This needs to be set based on the primary IP of the FW. Which means we need to ask for this addr when creating the port!
-    else:
-	_networks['fw_inside_network_name'] = _metadata['hostname'] + "-FW-INSIDE"
-	fw_inside_network = neutronlib.create_network(network_name=_networks['fw_inside_network_name'],
-						network_type="vlan",
-						tenant_id=os_project.id) # vxlan is temporary	
-	dhcp=True
-	inside_cidr = "192.168.100.0/28"
-        _networks['fw_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
-        _networks['fw_inside_mask'] = "255.255.255.0"
-	_networks['fw_inside_gateway'] = "192.168.100.1"
-
-    _networks['fw_inside_network_id'] = fw_inside_network["network"]["id"]
-    _networks['fw_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(fw_inside_network["network"]["id"])
-    _networks['fw_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_inside_network_id'],
-							cidr=inside_cidr,
-							gateway=_networks['fw_inside_gateway'],
-							enable_dhcp=dhcp,
-							tenant_id=os_project.id)
-
-    # Create FAILOVER network if highly-available
-    if ha:
-	_networks['fw_failover_network_name'] = _metadata['hostname'] + "-FW-FAILOVER"
-	fw_failover_network = neutronlib.create_network(network_name=_networks['fw_failover_network_name'],
-						tenant_id=os_project.id)
-	_networks['fw_failover_network_id'] = fw_failover_network["network"]["id"]
-	failover_cidr = "192.168.255.0/28"
-	_networks['fw_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['fw_failover_network_id'],
-								cidr=failover_cidr,
-								tenant_id=os_project.id)
-    else:
-	_networks['fw_failover_network_name'] = None
-	fw_failover_network = None # (todo) verify if this is necessary
-
-    return _networks # Return the list. It will be used to create ports.
-
-def create_lb_networks(ha):
-    global _networks
-
-    print "Creating virtual networks in Neutron for load balancer(s)..."
-    
-    # Create INSIDE network (where servers live)
-    _networks['lb_inside_network_name'] = _metadata['hostname'] + "-LB-INSIDE"
-    lb_inside_network = neutronlib.create_network(network_name=_networks['lb_inside_network_name'],
-						network_type="vlan",
-						tenant_id=os_project.id) # vxlan is temporary
-    dhcp=True
-    inside_cidr = "192.168.100.0/24"
-    _networks['lb_inside_net_addr'] = "192.168.100.0" # (todo) make this discoverable
-    _networks['lb_inside_mask'] = "255.255.255.0"
-    _networks['lb_inside_gateway'] = "192.168.100.1"
-
-    _networks['lb_inside_network_id'] = lb_inside_network["network"]["id"]
-    _networks['lb_inside_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_inside_network_id'],
-							cidr=inside_cidr,
-							gateway=_networks['lb_inside_gateway'],
-							enable_dhcp=dhcp,
-							tenant_id=os_project.id)
-    _networks['lb_inside_segmentation_id'] = neutronlib.get_segment_id_from_network(lb_inside_network["network"]["id"])
-
-    # Create FAILOVER network if highly-available
-    if ha:
-        _networks['lb_failover_network_name'] = _metadata['hostname'] + "-LB-FAILOVER"
-        lb_failover_network = neutronlib.create_network(network_name=_networks['lb_failover_network_name'],
-						tenant_id=os_project.id)
-	dhcp=False
-        _networks['lb_failover_network_id'] = lb_failover_network["network"]["id"]
-        failover_cidr = "192.168.255.16/28"
-        _networks['lb_failover_subnet_id'] = neutronlib.create_subnet(network_id=_networks['lb_failover_network_id'],
-								cidr=failover_cidr,
-								tenant_id=os_project.id)
-    else:
-        _networks['lb_failover_network_name'] = None
-        lb_failover_network = None # (todo) verify if this is necessary
-
-    return _networks # Return the list. It will be used to create ports.
-    
-def create_fw_ports():
-    global _ports
-
-    print "Creating virtual ports in Neutron for firewall(s)..."
-
+    # Instances
     try:
-        # Create ports
-        _ports['fw_mgmt_primary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
-								hostname=_metadata['hostname']+"-FW-PRI-MGMT",
-								port_security_enabled='False',
-								description='{"type":"management"}',
-								tenant_id=os_project.id)
-        _ports['fw_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['netdev_network'],
-								hostname=_metadata['hostname']+"-FW-PRI-OUTSIDE",
-								port_security_enabled='False',
-								description='{"type":"outside"}',
-								tenant_id=os_project.id)
-        _ports['fw_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
-								hostname=_metadata['hostname']+"-FW-PRI-INSIDE",
-								subnet_id=_networks['fw_inside_subnet_id'],
-								ip_address=_networks['fw_inside_gateway'],
-								port_security_enabled='False',
-								tenant_id=os_project.id)
+        result = dbmgr.query("select instance_id from instances where device_number=?",
+                                ([device_number]))
+        instances = result.fetchall()
 
-        # If HA, create a failover port and secondary unit ports
-        if _networks['fw_failover_network_name'] is not None:
-	    _ports['fw_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
-									hostname=_metadata['hostname']+"-FW-PRI-FAILOVER",
-									port_security_enabled='False',
-									description='{"type":"failover"}',
-									tenant_id=os_project.id)
-	    _ports['fw_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_failover_network_id'],
-									hostname=_metadata['hostname']+"-FW-SEC-FAILOVER",
-									port_security_enabled='False',
-									description='{"type":"failover"}',
-									tenant_id=os_project.id)
-	    _ports['fw_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
-									hostname=_metadata['hostname']+"-FW-SEC-MGMT",
-									port_security_enabled='False',
-									description='{"type":"management"}',
-									tenant_id=os_project.id)
-	    _ports['fw_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['netdev_network'],
-									hostname=_metadata['hostname']+"-FW-SEC-OUTSIDE",
-									port_security_enabled='False',
-									description='{"type":"outside"}',
-									tenant_id=os_project.id)
-	    _ports['fw_inside_secondary_port_id'] = neutronlib.create_port(_networks['fw_inside_network_id'],
-									hostname=_metadata['hostname']+"-FW-SEC-INSIDE",
-									port_security_enabled='False',
-									tenant_id=os_project.id)
+        for instance in instances:
+            novalib.delete_instance(instance['instance_id'])
+            dbmgr.query("delete from instances where instance_id=?",
+                         ([instance['instance_id']]))
+            print "Deleted instance %s" % instance['instance_id']
+
     except Exception, e:
-	logging.exception("Error creating virtual ports. Rolling back port creation! %s" % e)
-	# (todo) implement rollback then exit
+        logging.exception('Unable to delete instance! Check sync. %s' % e)
 
-    return _ports # Return the ports. They will be used to generate the configuration.
-
-def create_lb_ports():
-    global _ports
-
-    print "Creating virtual ports in Neutron for load balancer(s)..."
-
+    # Ports
     try:
-        # Create ports
-        _ports['lb_mgmt_primary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
-								hostname=_metadata['hostname']+"-LB-PRI-MGMT",
-								port_security_enabled='False',
-								description='{"type":"management"}',
-								tenant_id=os_project.id)
-        _ports['lb_outside_primary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
-								hostname=_metadata['hostname']+"-LB-PRI-EXTERNAL",
-								port_security_enabled='False',
-								description='{"type":"outside"}',
-                                                                tenant_id=os_project.id)
-        _ports['lb_inside_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
-								hostname=_metadata['hostname']+"-LB-PRI-INTERNAL",
-								port_security_enabled='False',
-								tenant_id=os_project.id)
+        result = dbmgr.query("select port_id from ports where device_number=?",
+                                ([device_number]))
+        ports = result.fetchall()
 
-        # If HA, create a failover port and secondary unit ports
-        if _networks['lb_failover_network_name'] is not None:
-            _ports['lb_failover_primary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
-								hostname=_metadata['hostname']+"-LB-PRI-FAILOVER",
-								port_security_enabled='False',
-								description='{"type":"failover"}',
-								tenant_id=os_project.id)
-            _ports['lb_failover_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_failover_network_id'],
-								hostname=_metadata['hostname']+"-LB-SEC-FAILOVER",
-								port_security_enabled='False',
-								description='{"type":"failover"}',
-								tenant_id=os_project.id)
-            _ports['lb_mgmt_secondary_port_id'] = neutronlib.create_port(network_id=_networks['oob_network'],
-								hostname=_metadata['hostname']+"-LB-SEC-MGMT",
-								port_security_enabled='False',
-								description='{"type":"management"}',
-								tenant_id=os_project.id)
-            _ports['lb_outside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['fw_inside_network_id'],
-								hostname=_metadata['hostname']+"-LB-SEC-EXTERNAL",
-								port_security_enabled='False',
-								description='{"type":"outside"}',
-								tenant_id=os_project.id)
-            _ports['lb_inside_secondary_port_id'] = neutronlib.create_port(network_id=_networks['lb_inside_network_id'],
-								hostname=_metadata['hostname']+"-LB-SEC-INTERNAL",
-								port_security_enabled='False',
-								tenant_id=os_project.id)
+        for port in ports:
+            neutronlib.delete_port(port['port_id'])
+            dbmgr.query("delete from ports where port_id=?",
+                             ([port['port_id']]))
+            print "Deleted port %s" % port['port_id']
+
     except Exception, e:
-        logging.exception("Error creating virtual ports. Rolling back port creation! %s" % e)
-        # (todo) implement rollback then exit
-	sys.exit(1)
-        
-    return _ports # Return the ports. They will be used to generate the configuration.
+        logging.exception('Unable to delete port! Check sync. %s' % e)
 
-def build_lb_configuration(ha=False):
-    # Build the configuration that will be pushed to the devices
-    _lb_configuration = {}
-    _lb_configuration['lb_hostname'] = _metadata['hostname']
-    _lb_configuration['lb_inside_net_addr'] = _networks['lb_inside_net_addr']
-    _lb_configuration['lb_inside_mask'] = _networks['lb_inside_mask']
-    _lb_configuration['lb_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_primary_port_id'])
-    _lb_configuration['lb_mgmt_gateway'],_lb_configuration['lb_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['lb_mgmt_primary_port_id'])
-    _lb_configuration['lb_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_primary_port_id'])
-    _lb_configuration['lb_outside_gateway'],_lb_configuration['lb_outside_mask'], = neutronlib.get_gateway_from_port(_ports['lb_outside_primary_port_id'])
-    _lb_configuration['lb_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_primary_port_id'])
-    _lb_configuration['lb_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_inside_subnet_id'])
-    _lb_configuration['lb_inside_segmentation_id'] = _networks['lb_inside_segmentation_id']
 
-    if ha:
-        _lb_configuration['lb_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_primary_port_id'])
-        _lb_configuration['lb_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_mgmt_secondary_port_id'])
-        _lb_configuration['lb_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_failover_secondary_port_id'])
-        _lb_configuration['lb_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['lb_failover_subnet_id'])
-        _lb_configuration['lb_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_outside_secondary_port_id'])
-        _lb_configuration['lb_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['lb_inside_secondary_port_id'])
 
-    return _lb_configuration
 
-def build_fw_configuration(os_project_name,user_name,ha=False):
 
-    # Build the configuration that will be pushed to the devices
-    _fw_configuration = {}
-    _fw_configuration['fw_hostname'] = _metadata['hostname']
-    _fw_configuration['fw_inside_net_addr'] = _networks['fw_inside_net_addr']
-    _fw_configuration['fw_inside_mask'] = _networks['fw_inside_mask']
-    _fw_configuration['fw_mgmt_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_primary_port_id'])
-    _fw_configuration['fw_mgmt_gateway'],_fw_configuration['fw_mgmt_mask'], = neutronlib.get_gateway_from_port(_ports['fw_mgmt_primary_port_id'])
-    _fw_configuration['fw_outside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_primary_port_id'])
-    _fw_configuration['fw_outside_gateway'],_fw_configuration['fw_outside_mask'], = neutronlib.get_gateway_from_port(_ports['fw_outside_primary_port_id'])
-    _fw_configuration['fw_inside_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_primary_port_id'])
-    _fw_configuration['fw_inside_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_inside_subnet_id'])
-    _fw_configuration['fw_inside_segmentation_id'] = _networks['fw_inside_segmentation_id']
 
-    if ha:
-	_fw_configuration['fw_failover_primary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_primary_port_id'])
-	_fw_configuration['fw_mgmt_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_mgmt_secondary_port_id'])
-	_fw_configuration['fw_failover_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_failover_secondary_port_id'])
-	_fw_configuration['fw_failover_netmask'] = neutronlib.get_netmask_from_subnet(_networks['fw_failover_subnet_id']) 
-	_fw_configuration['fw_outside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_outside_secondary_port_id'])
-	_fw_configuration['fw_inside_secondary_address'] = neutronlib.get_fixedip_from_port(_ports['fw_inside_secondary_port_id'])
 
-    # Build an IPSec Client VPN configuration
-    # (todo) Build AnyConnect configuration
-    _fw_configuration['tunnel_group'] = os_project_name
-    _fw_configuration['group_policy'] = os_project_name
-    _fw_configuration['group_password'] = keystonelib.generate_password(16)
-    _fw_configuration['vpn_user'] = user_name
-    _fw_configuration['vpn_password'] = keystonelib.generate_password(16)
 
-    return _fw_configuration
 
 def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
     global _metadata
@@ -1025,7 +818,7 @@ def create(args):
 def list_devices(db_filename):
     # Returns a list of instances known to Moonshine
     dbmgr = DatabaseManager(db_filename)
-    details = PrettyTable(["id", "environment", "account", "device", "name", "type", "management address"])
+    details = PrettyTable(["instance_id", "environment_number", "account_number", "device_number", "device_name", "device_type", "management_ip"])
     details.align["id"] = "l" # left
 
     # Return instances in the local DB
@@ -1033,18 +826,17 @@ def list_devices(db_filename):
 
     servers = result.fetchall()
     for server in servers:
-	print server
-	id = server[0]
-	env = server[1]
-	account = server[2]
- 	device = server[3]
-	name = server[4]
-	type = server[5]
+	id = server['instance_id']
+	env = server['environment_number']
+	account = server['account_number']
+	device = server['device_number']
+	name = server['device_name']
+	type = server['device_type']
 
 	# Find the management port in local DB
-	result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([server.device_number]))
+	result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([server['device_number']]))
 	port_id = result.fetchone()[0]
-	management_ip = get_fixedip_from_port(port_id)
+	management_ip = neutronlib.get_fixedip_from_port(port_id)
 
         details.add_row([id,env,account,device,name,type,management_ip])
 
@@ -1113,8 +905,8 @@ if __name__ == "__main__":
 
     # A find command
     find_parser = subparsers.add_parser('find', help='Find virtual network instances')    
-    find_parser.add_argument('--env', action='store', dest='env', help='Find instance based on environment number', required=False)
-    find_parser.add_argument('--account', action='store', dest='account_number', help='Find instance based on account number', required=False)
+    find_parser.add_argument('-e','--env', action='store', dest='env', help='Find instance based on environment number', required=False)
+    find_parser.add_argument('-a','--account', action='store', dest='account_number', help='Find instance based on account number', required=False)
 
     # A create-ports command
     # Moving to creating ports first, then can create instances at-will
@@ -1131,36 +923,12 @@ if __name__ == "__main__":
     createinstance_parser.add_argument('-j','--json',type=json.loads,
                                 dest='instance_blob',help='Specifies json for instance')
 
-    deleteenvironment_parser = subparsers.add_parser('delete-environment', help='Remove all resources related to an environment')
-    deleteenvironment_parser.add_argument('-e','--environment',
-                                dest='environment_number',help='Specify DCX environment number', required=True)
-
-
-
-
-
-
-
-    create_parser = subparsers.add_parser('create', help='Create virtual network device(s)')
-
-    create_parser.add_argument('-e','--environment', dest='environment_number', 
-				help='Specify DCX environment number', required=True)
-
-    create_parser.add_argument('-a','--account', dest='account_number', 
-				help='Specify CORE account number', required=True)
-
-    create_parser.add_argument('-d','--device',dest='device_number',
-				help='Specify CORE device number', required=True)
-
-    create_parser.add_argument('--fw', dest='fw', help='Specify firewall type', 
-				choices=['asav5', 'asav10', 'asav30','vsrx'], required=False)
-    create_parser.add_argument('--lb', dest='lb', help='Specify load balancer type', 
-				choices=['ltm','netscaler'], required=False)
-    create_parser.add_argument('--ha', dest='ha', action='store_true', help='Builds network instances in a highly-available manner', required=False)
-    create_parser.add_argument('--vm', dest='vm', action='store_true', help='Builds a virtual machine on the backend', required=False)
-    create_parser.set_defaults(ha=False)
-    create_parser.set_defaults(lb=None)
-    create_parser.set_defaults(vm=False)
+    delete_parser = subparsers.add_parser('delete', help='Remove all resources related to an object')
+    del_group = delete_parser.add_mutually_exclusive_group()    
+    del_group.add_argument('-d','--device_number',
+                                dest='device_number',help='Specify DCX device number', required=False)
+    del_group.add_argument('-e','--environment',
+                                dest='environment_number',help='Specify DCX environment number', required=False)
 
     # Array for all arguments passed to script
     args = parser.parse_args()
@@ -1192,15 +960,17 @@ if __name__ == "__main__":
     except Exception, e:
         logging.exception("Error: Unable to create instance! %s" % e)    
 
-    # delete-environment
+    # Delete resources
     try:
-        if args.command == 'delete-environment':
-            delete_environment(args.environment_number)
+	if args.command == 'delete':
+	    if args.environment_number is not None:
+		delete_environment(args.environment_number)
+	    elif args.device_number is not None:
+		delete_device(args.device_number)
+	    else:
+		print 'Nothing to delete!'
     except Exception, e:
-        logging.exception("Error: Unable to delete environment! %s" % e)
-
-
-
+	logging.exception("Error deleting: %s" % e)
 
 
 
@@ -1230,11 +1000,11 @@ if __name__ == "__main__":
     # The CREATE parser
     # (todo) Build it so that an individual device can be created and added to an environment
     # For now, all devices are created at launch
-    try:
-	if args.command == 'create':
-	    # (todo) Tie environments into Keystone tenants.
-	    # Check for tenant/project before proceeding. Maybe notify user?
-	    print "Creating devices for environment %s in account %s" % (args.env,args.account_number)
-	    create(args)
-    except Exception, e:
-	logging.exception("Oops! Unable to create! %s" % e)
+#    try:
+#	if args.command == 'create':
+#	    # (todo) Tie environments into Keystone tenants.
+#	    # Check for tenant/project before proceeding. Maybe notify user?
+#	    print "Creating devices for environment %s in account %s" % (args.env,args.account_number)
+#	    create(args)
+# #   except Exception, e:
+#	logging.exception("Oops! Unable to create! %s" % e)

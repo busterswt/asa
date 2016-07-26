@@ -209,3 +209,21 @@ def delete_port(port_id):
 
 def delete_network(network_id):
     return neutron.delete_network(network_id)
+
+def get_mtu_from_port(port_id):
+    # Returns the network MTU
+    # If 0 and vxlan, sets to 1450 (safe value)
+    port_details = neutron.show_port(port_id)
+    network_id = port_details["port"]["network_id"]
+    network_details = neutron.show_network(network_id)
+    network_mtu = network_details["network"]["mtu"]
+    network_type = network_details["network"]["provider:network_type"]
+
+    if network_mtu == '0':
+        if 'vxlan' in network_type:
+	    network_mtu = '1450'
+	elif 'vlan' in network_type:
+	    network_mtu = '1500'
+
+    return network_mtu
+
