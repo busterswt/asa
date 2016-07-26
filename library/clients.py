@@ -49,7 +49,7 @@ def get_keystone_creds():
 	_keystone_creds['user_domain_id'] = os.environ['OS_USER_DOMAIN_NAME']
 	_keystone_creds['project_domain_id'] = os.environ['OS_PROJECT_DOMAIN_NAME']    
     except KeyError, e:
-            print ("Openstack environment variable %s is not set!") % e
+            logging.exception("Openstack environment variable %s is not set!") % e
             sys.exit(1)
 
 #    print _keystone_creds # Debugging
@@ -60,7 +60,7 @@ def get_keystone_creds():
 try:
     u = urlparse(os.environ['OS_AUTH_URL'])
 except Exception, e:
-    print ("Error! Unable to read OS_AUTH_URL. Please source credentials.")
+    logging.exception("Error! While trying to determine API version, unable to read OS_AUTH_URL environment variable. Please source credentials.")
     sys.exit(1)
 
 if "v2.0" in u.path:
@@ -72,7 +72,7 @@ if "v2.0" in u.path:
 	    _keystone_creds['auth_url'] = os.environ['OS_AUTH_URL']
 	    _keystone_creds['tenant_name'] = os.environ['OS_TENANT_NAME']
 	except KeyError, e:
-	    print ("Openstack environment variable %s is not set!") % e
+	    logging.exception("Openstack environment variable %s is not set!") % e
 	    sys.exit(1)
 	auth = v2.Password(**_keystone_creds)
 	sess = session.Session(auth=auth)

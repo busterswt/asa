@@ -7,6 +7,20 @@
 	"image": "a445e62d-625b-4f9a-a723-533d4b0ce833",
 	"flavor": "2"
     },
+    "router": {
+	"csrv1g": {
+	    "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
+	    "flavor": "9b27a939-a55f-492a-8390-989a953cd957"
+	},
+	"csrv2g": {
+	    "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
+            "flavor": "9b27a939-a55f-492a-8390-989a953cd957"
+        },
+        "csrv2g": {
+            "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
+            "flavor": "e799e085-4739-4584-9846-fa87b9720103"
+        }
+    },
     "firewall": {
         "asav5": {
             "image": "0a10c01f-6aa6-4bdf-b6ac-c6a7869145a6",
@@ -27,7 +41,7 @@
     },
     "loadbalancer": {
         "ltm": {
-       	    "image": "9e014ef1-6138-40fd-85ba-16236acc333c",
+       	    "image": "60a523bb-c10d-43a5-a03a-79f2e48eceae",
        	    "flavor": "ebbd839d-54eb-4bd2-849b-1cbf0d13df2b"
         },
         "netscaler": {

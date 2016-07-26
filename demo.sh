@@ -1,10 +1,10 @@
 # Create the networks used for the environment
 echo 'Creating networks...'
 
-./moonshine.py create-networks -j \
+./moonshine create-networks -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
     "networks": [
         {
             "network_name": "lb_failover",
@@ -37,11 +37,11 @@ sleep 1
 # Creatr the ports used in the environment
 echo 'Creating ports for devices...'
 
-./moonshine.py create-ports -j \
+./moonshine create-ports -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "111111",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "555555",
     "ports": [
         {
             "network_name": "fw_inside",
@@ -62,11 +62,11 @@ echo 'Creating ports for devices...'
     ]
 }'	
 
-./moonshine.py create-ports -j \
+./moonshine create-ports -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "222222",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "666666",
     "ports": [
         {
             "network_name": "fw_inside",
@@ -87,11 +87,11 @@ echo 'Creating ports for devices...'
     ]
 }'	
 
-./moonshine.py create-ports -j \
+./moonshine create-ports -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "333333",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "777777",
     "ports": [
         {
             "network_name": "fw_inside",
@@ -113,11 +113,11 @@ echo 'Creating ports for devices...'
     ]
 }'	
 
-./moonshine.py create-ports -j \
+./moonshine create-ports -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "444444",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "888888",
     "ports": [
         {
             "network_name": "fw_inside",
@@ -143,12 +143,12 @@ sleep 1
 
 echo "Creating instances..."
 
-./moonshine.py create-instance -j \
+./moonshine create-instance -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "111111",
-    "peer_device": "222222",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "555555",
+    "peer_device": "666666",
     "device_type": "firewall",
     "device_model": "asav5",
     "device_priority": "primary",
@@ -168,12 +168,12 @@ echo "Creating instances..."
     ]
 }'	
 
-./moonshine.py create-instance -j \
+./moonshine create-instance -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "222222",
-    "peer_device": "111111",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "666666",
+    "peer_device": "555555",
     "device_type": "firewall",
     "device_model": "asav5",
     "device_priority": "secondary",
@@ -193,12 +193,12 @@ echo "Creating instances..."
     ]
 }'	
 
-./moonshine.py create-instance -j \
+./moonshine create-instance -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "333333",
-    "peer_device": "444444",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "777777",
+    "peer_device": "888888",
     "device_type": "loadbalancer",
     "device_model": "ltm",
     "device_priority": "primary",
@@ -218,12 +218,12 @@ echo "Creating instances..."
     ]
 }'	
 
-./moonshine.py create-instance -j \
+./moonshine create-instance -j \
 '{
-    "account_number": "123456",
-    "environment_number": "ENV123456",
-    "device_number": "444444",
-    "peer_device": "333333",
+    "account_number": "888888",
+    "environment_number": "ENV888888",
+    "device_number": "888888",
+    "peer_device": "777777",
     "device_type": "loadbalancer",
     "device_model": "ltm",
     "device_priority": "secondary",

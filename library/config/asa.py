@@ -138,6 +138,8 @@ def generate_interface_config(db_filename,data,self_ports,peer_ports):
 	subnet_id = neutronlib.get_subnet_from_port(port_id)
 	interface = {}
 	interface['port_name'] = port_name
+	interface['mtu'] = neutronlib.get_mtu_from_port(port_id)
+	interface['mss'] = int(interface['mtu']) - 120
 
         if 'standalone' in data['priority']:
 	    interface['standby_keyword'] = ''
@@ -172,6 +174,9 @@ def generate_interface_config(db_filename,data,self_ports,peer_ports):
 
                 access-list {port_name}_in permit ip any any
                 access-group {port_name}_in in interface {port_name}
+
+		mtu {port_name} {mtu}
+		sysopt connection tcpmss {mss}
             """.format(index,**interface)
 
 	if 'failover' in interface['port_name']:
