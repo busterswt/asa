@@ -14,14 +14,16 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     interface = {}
     interface['external_addr'] = neutronlib.get_fixedip_from_port(self_ports[1]) # Outside/External interface
     interface['external_netmask'] = neutronlib.get_netmask_from_subnet(neutronlib.get_subnet_from_port(self_ports[1]))
+    interface['external_mtu'] = neutronlib.get_mtu_from_port(self_ports[1])
     interface['internal_addr'] = neutronlib.get_fixedip_from_port(self_ports[2]) # Inside/Internal interface
-    interface['internal_netmask'] = neutronlib.get_netmask_from_subnet(neutronlib.get_subnet_from_port(self_ports[1]))
+    interface['internal_netmask'] = neutronlib.get_netmask_from_subnet(neutronlib.get_subnet_from_port(self_ports[2]))
+    interface['internal_mtu'] = neutronlib.get_mtu_from_port(self_ports[2])
 
     # Determine HA info
     if 'primary' or 'secondary' in instance_blob['device_priority']:
         interface['self_failover_addr'] = neutronlib.get_fixedip_from_port(self_ports[3])
         interface['self_failover_netmask'] = neutronlib.get_netmask_from_subnet(neutronlib.get_subnet_from_port(self_ports[3]))
-
+        interface['self_failover_mtu'] = neutronlib.get_mtu_from_port(self_ports[3])
 
     ###################################
     # Generate the base configuration #
@@ -51,11 +53,13 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     config['bigip']['network']['interfaces']['1.1']['vlan_name'] = 'EXTERNAL'
     config['bigip']['network']['interfaces']['1.1']['address'] = interface['external_addr']
     config['bigip']['network']['interfaces']['1.1']['netmask'] = interface['external_netmask']
+    config['bigip']['network']['interfaces']['1.1']['mtu'] = interface['external_mtu']
     config['bigip']['network']['interfaces']['1.2'] = {}
     config['bigip']['network']['interfaces']['1.2']['dhcp'] = 'false'
     config['bigip']['network']['interfaces']['1.2']['vlan_name'] = 'INTERNAL'
     config['bigip']['network']['interfaces']['1.2']['address'] = interface['internal_addr']
-    config['bigip']['network']['interfaces']['1.2']['netmask'] = interface['external_netmask']
+    config['bigip']['network']['interfaces']['1.2']['netmask'] = interface['internal_netmask']
+    config['bigip']['network']['interfaces']['1.2']['mtu'] = interface['internal_mtu']
 
     # Add routes
     config['bigip']['network']['routes'] = []
@@ -68,9 +72,11 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
 	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'
 	config['bigip']['network']['interfaces']['1.3']['address'] = interface['self_failover_addr']
 	config['bigip']['network']['interfaces']['1.3']['netmask'] = interface['self_failover_netmask']
+        config['bigip']['network']['interfaces']['1.3']['mtu'] = interface['self_failover_mtu']
         config['bigip']['network']['interfaces']['1.3']['is_failover'] = 'true'
         config['bigip']['network']['interfaces']['1.3']['is_sync'] = 'true'
         config['bigip']['network']['interfaces']['1.3']['is_mirror_primary'] = 'true'
 
     json_config = json.dumps(config)
+    print json_config # Debug
     return json_config
