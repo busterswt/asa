@@ -10,15 +10,15 @@
     "router": {
 	"csrv1g": {
 	    "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
-	    "flavor": "9b27a939-a55f-492a-8390-989a953cd957"
+	    "flavor": "907bc72c-6426-41e9-8419-3267bb540728"
 	},
 	"csrv2g": {
 	    "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
-            "flavor": "9b27a939-a55f-492a-8390-989a953cd957"
+            "flavor": "907bc72c-6426-41e9-8419-3267bb540728"
         },
         "csrv2g": {
             "image": "72e1d951-d6b3-4c1a-96d2-2b7caf286c5e",
-            "flavor": "e799e085-4739-4584-9846-fa87b9720103"
+            "flavor": "5dccbce1-1ad3-49f5-9c94-7d8867264656"
         }
     },
     "firewall": {
@@ -47,6 +47,10 @@
         "netscaler": {
             "image": "38a25d9d-5414-472c-ba5d-413cb350c303",
             "flavor": "18a37179-7707-4c76-8dcf-9183dccc024d"
+	},
+        "vadx": {
+            "image": "9ef91ea5-9c10-47ea-b150-0717b2784ce7",
+            "flavor": "907bc72c-6426-41e9-8419-3267bb540728"
        	}
     }
 }

@@ -110,8 +110,7 @@ def boot_instance(name,image,flavor,az,**kwargs):
     # Check to see if file has been injected
     # (todo) support multiple injected files
     if kwargs.get('file_path') is not None:
-	server_args['files'] = {'path':kwargs.get('file_path'),
-				"contents":kwargs.get('file_contents')}
+	server_args['files'] = {kwargs.get('file_path'):kwargs.get('file_contents')}
 
     # Check to see if metadata has been injected
     if kwargs.get('meta') is not None:

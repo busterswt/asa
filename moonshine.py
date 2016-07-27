@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import sqlite3, os
-import netaddr
+import netaddr, base64
 import requests, json, sys
 import argparse, time, logging
 from prettytable import PrettyTable
@@ -16,6 +16,7 @@ import library.config.asa as asa
 import library.config.ltm as ltm
 import library.config.netscaler as netscaler
 import library.config.srx as srx
+import library.config.csr as csr
 
 # Initialize global variables that will be used throughout
 # Best practice? Dunno.
@@ -254,11 +255,18 @@ def create_instance(instance_blob):
 	    instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive='True',
 					file_path='day0',file_contents=device_config,ports=ports,
                                         az=zone)
+	elif 'csrv' in instance_blob['device_model']:
+	    instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive="True",
+                                        file_path='iosxe_config.txt',file_contents=device_config,ports=ports,
+                                        az=zone)
         elif 'srx' in instance_blob['device_model']:
             print 'srx'
         elif 'netscaler' in instance_blob['device_model']:
             print 'citrix'
         elif 'ltm' in instance_blob['device_model']:
+            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+                                        ports=ports,userdata=device_config,az=zone)
+        elif 'vadx' in instance_blob['device_model']:
             instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
                                         ports=ports,userdata=device_config,az=zone)
 
@@ -269,7 +277,8 @@ def create_instance(instance_blob):
 			instance_blob["device_type"],instance_blob['device_model'],instance_blob["device_priority"]]))
 
 	    # Find the management port in local DB
-            result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([instance_blob['device_number']]))
+            result = dbmgr.query("select port_id from ports where device_number=? and account_number=? and port_name='management'", 
+				([instance_blob['device_number'],instance_blob['account_number']]))
             port_id = result.fetchone()[0]
             management_ip = neutronlib.get_fixedip_from_port(port_id)
 
@@ -293,7 +302,6 @@ def generate_configuration(instance_blob):
 
     # Determine if standalone, primary, secondary 
     # Generate port ids. Send to the individual device functions
-    # return config
     
     # Generate the list of ports needed to build config
     # Must be in exact order passed from user!
@@ -337,12 +345,16 @@ def generate_configuration(instance_blob):
     # Test for various devices
     if 'asav' in instance_blob['device_model']:
 	device_config = asa.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
+    elif 'csrv' in instance_blob['device_model']:
+        device_config = csr.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
     elif 'srx' in instance_blob['device_model']:
-	print 'srx'
+	device_config = ""
     elif 'netscaler' in instance_blob['device_model']:
-	print 'citrix'
+	device_config = ""
     elif 'ltm' in instance_blob['device_model']:
 	device_config = ltm.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
+    elif 'vadx' in instance_blob['device_model']:
+        device_config = ""
 
     return device_config
 
@@ -834,7 +846,8 @@ def list_devices(db_filename):
 	type = server['device_type']
 
 	# Find the management port in local DB
-	result = dbmgr.query("select port_id from ports where device_number=? and port_name='management'", ([server['device_number']]))
+	result = dbmgr.query("select port_id from ports where device_number=? and account_number=? and port_name='management'",
+                                ([server['device_number'],server['account_number']]))
 	port_id = result.fetchone()[0]
 	management_ip = neutronlib.get_fixedip_from_port(port_id)
 
