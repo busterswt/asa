@@ -59,7 +59,20 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     configuration += generate_aaa_configuration()
 #    config += generate_vpn_config(data)
 
+    # Enable RESTAPI
+    configuration += generate_restapi_config()
+
     return configuration
+
+def generate_restapi_config():
+    restapi_config = """
+        http server enable
+        http 0.0.0.0 0.0.0.0 management
+        rest-api image boot:/asa-restapi-122260-lfbff-k8.SPA
+        rest-api agent
+    """
+
+    return restapi_config
 
 def generate_management_interface_config(data):
     management_interface = """
