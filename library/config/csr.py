@@ -5,7 +5,7 @@ import netaddr
 
 def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     data = {}
-    data['hostname'] = instance_blob['environment_number'] + '-' + instance_blob['account_number'] + '-' + instance_blob['device_number']
+    data['hostname'] = instance_blob['environment_number'] + '-' + str(instance_blob['account_number']) + '-' + instance_blob['device_number']
 
     subnet_id = neutronlib.get_subnet_from_port(self_ports[0])
     data['pri_mgmt_addr'] = neutronlib.get_fixedip_from_port(self_ports[0])

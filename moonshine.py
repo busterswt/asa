@@ -267,7 +267,7 @@ def create_instance(instance_blob):
             instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
                                         ports=ports,userdata=device_config,az=zone)
         elif 'vadx' in instance_blob['device_model']:
-            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive="True",
                                         ports=ports,userdata=device_config,az=zone)
 
 	# Update sqlite database
