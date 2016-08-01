@@ -194,9 +194,6 @@ def create_ports(db_filename,payload):
                 # Creates the port in Neutron
                 q_port = neutronlib.create_port(network_id=network_id[0],**port_args) # need to set tenant id
 
-#                print "Created port %s in Neutron" % (q_port["port"]["id"])
-		
-
                 # Update sqlite database
                 try:
                     dbmgr.query("insert into ports (port_id,network_id,tenant_id,account_number,environment_number, \
@@ -230,9 +227,13 @@ def create_ports(db_filename,payload):
     response['message'] = "Success"
     return response
 
-def create_instance(instance_blob):
+def create_instance(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
-    details = PrettyTable(["account", "environment", "device", "hostname", "device_type", "priority", "zone", "management_ip"])
+    instance_blob = json.loads(payload)
+
+    # Initialize json response
+    response = {}
+    response['data'] = []
 
     # (todo) Check to see if an instance with that device number exists!
 
@@ -245,10 +246,13 @@ def create_instance(instance_blob):
 
         count = data.fetchone()
         if count[0] < 1:
-            print "Device '%s' does not have a port in the '%s' network in environment %s! Please create the port and try again." % \
-            				(instance_blob["device_number"],m_port["network_name"],instance_blob["environment_number"])
-            port_exists = False
-	continue # Continue the loop
+            response['message'] = "Error"
+            response['error'] = "Device '%s' does not have a port in the '%s' network in environment %s! Please create the port and try again." % \
+					(instance_blob["device_number"],m_port["network_name"],instance_blob["environment_number"])
+	    status_code = "400"
+	    port_exists = False
+            return response, status_code
+#	continue # Continue the loop
 
     # If we're here, it should mean all ports are accounted for.
     # (todo) ensure that we also check for peer ports, too, above. Those will be needed to generate the configuration. 
@@ -262,8 +266,11 @@ def create_instance(instance_blob):
         	                      	(instance_blob["device_number"],instance_blob["environment_number"],m_port["network_name"]))
 	        port = data.fetchone()
 	        ports.append(port[0])
-	except Exception ,e:
-	    print 'Unable to determine existence of ports %s' % e 
+	except Exception, e:
+	    response['message'] = "error"
+            response['error'] = "Unable to gather ports for instance!"
+            status_code = "400"
+	    return response, status_code
 
     # Load additional config options like image IDs and flavor IDs
     try:
@@ -271,12 +278,14 @@ def create_instance(instance_blob):
 	image_id = config[instance_blob['device_type']][instance_blob['device_model']]['image']
 	flavor_id = config[instance_blob['device_type']][instance_blob['device_model']]['flavor']
     except Exception, e:
+	response['message'] = "error"
+        response['error'] = "Unable to determine image or flavor id!"
+        status_code = "400"
         logging.exception("Unable to load configuration file! %s" % e)
-        sys.exit(1)
-
+	return response, status_code
 
     # Generate device configuration
-    device_config = generate_configuration(instance_blob)
+    device_config = generate_configuration(db_filename,instance_blob)
 
     # Determine availability zone
     if 'secondary' in instance_blob["device_priority"]:
@@ -323,23 +332,42 @@ def create_instance(instance_blob):
             port_id = result.fetchone()[0]
             management_ip = neutronlib.get_fixedip_from_port(port_id)
 
-            details.add_row([instance_blob["account_number"],instance_blob["environment_number"],instance_blob["device_number"],
-                              hostname,instance_blob["device_type"],instance_blob["device_priority"],zone,management_ip])
         except Exception, e:
-            print "Unable to update local database while booting the instance. Moonshine and Nova could be out of sync! %s" % e
+            response['message'] = "error"
+            response['error'] = "Unable to update local database while booting the instance. Moonshine and Nova could be out of sync! %s" % e
+            status_code = "400"
+            return response, status_code
 
-        # Print the details of the instance created
-        print "Instance details:"
-        print details
-	return instance
+	server= {}
+        server['account_number'] = instance_blob["account_number"]
+        server['environment_number'] = instance_blob["environment_number"]
+	server['device_number'] = instance_blob["device_number"]
+	server['device_type'] = instance_blob["device_type"]
+	server['device_model'] = instance_blob['device_model']
+        server['hostname'] = hostname
+        server['id'] = instance.id
+	server['host'] = novalib.get_hypervisor_from_id(instance.id)
+	server['management_ip'] = management_ip
+	server['image_id'] = image_id
+	server['flavor_id'] = flavor_id
+
+        response['data'].append(server)
+	response['message'] = 'success'
+	status_code = "200"
+
+	return response, status_code
 
     except Exception, e:
-	logging.exception("Unable to boot instance! %s" % e)
+	response['message'] = 'error'
+	response['error'] = "Unable to boot instance! %s" % e
+	status_code = "400"
+	return response, status_code
 
-def generate_configuration(instance_blob):
+def generate_configuration(db_filename,instance_blob):
     """
     :desc: Generates device configuration. Not really pluggable. Only works with certain device types/models.
     """
+    dbmgr = DatabaseManager(db_filename)
 
     # Determine if standalone, primary, secondary 
     # Generate port ids. Send to the individual device functions
@@ -357,7 +385,7 @@ def generate_configuration(instance_blob):
             self_ports.append(port[0])
 #        print self_ports # Debug
     except Exception, e:
-        logging.exception("Unable to build self port list when generating config! %s") % e
+        logging.exception("Unable to build self port list when generating config! %s" % e)
 
     # Generate the list of peer port IDs (if applicable)
     if instance_blob.get("peer_device") is not None:
@@ -400,8 +428,13 @@ def generate_configuration(instance_blob):
     return device_config
 
 
-def delete_environment(environment_number):
+def delete_environment(db_filename,environment_number):
     dbmgr = DatabaseManager(db_filename)
+
+    # Initialize json response
+    response = {}
+    response['data'] = []
+
     # Delete all resources related to an environment
     # instances, ports, then networks
 
@@ -415,10 +448,11 @@ def delete_environment(environment_number):
 	    novalib.delete_instance(instance['instance_id'])
 	    dbmgr.query("delete from instances where instance_id=?",
                          ([instance['instance_id']]))
-	    print "Deleted instance %s" % instance['instance_id']
-
     except Exception, e:
-	logging.exception('Unable to delete instance! Check sync. %s' % e)
+	response['message'] = "Error"
+        response['error'] = "Unable to delete instance. Moonshine and Nova could be out of sync! %s" % e
+        status_code = "400"
+        return response, status_code
 
     # Ports
     try:
@@ -430,10 +464,11 @@ def delete_environment(environment_number):
 	    neutronlib.delete_port(port['port_id'])
             dbmgr.query("delete from ports where port_id=?",
                              ([port['port_id']]))
-            print "Deleted port %s" % port['port_id']
-
     except Exception, e:
-        logging.exception('Unable to delete port! Check sync. %s' % e)
+        response['message'] = "Error"
+        response['error'] = "Unable to delete ports. Moonshine and Nova could be out of sync! %s" % e
+        status_code = "400"
+        return response, status_code
 
     # Networks
     try:
@@ -445,10 +480,17 @@ def delete_environment(environment_number):
             neutronlib.delete_network(network['network_id'])
             dbmgr.query("delete from networks where network_id=?",
                              ([network['network_id']]))
-            print "Deleted network %s" % network['network_id']
-
     except Exception, e:
-        logging.exception('Unable to delete network! Check sync. %s' % e)
+        response['message'] = "Error"
+        response['error'] = "Unable to delete networks. Moonshine and Nova could be out of sync! %s" % e
+        status_code = "400"
+        return response, status_code
+
+    # If we're here, all was successful
+    response['message'] = "Success"
+    status_code = "200"
+    return response, status_code
+
 
 def delete_device(device_number):
     dbmgr = DatabaseManager(db_filename)
@@ -493,7 +535,7 @@ def load_config():
 
     return config
 
-def list_devices(db_filename,environment_number):
+def list_devices(db_filename,environment_number=None,device_number=None):
     # Returns a list of instances known to Moonshine
     dbmgr = DatabaseManager(db_filename)
     response = {}
@@ -503,6 +545,8 @@ def list_devices(db_filename,environment_number):
         # Return instances in the local DB
 	if environment_number is not None:
 	    result = dbmgr.query("select * from instances where environment_number=?",([environment_number]))
+	elif device_number is not None:
+            result = dbmgr.query("select * from instances where device_number=?",([device_number]))
 	else:        
 	    result = dbmgr.query("select * from instances")
         servers = result.fetchall()
@@ -644,7 +688,7 @@ if __name__ == "__main__":
     # Takes JSON blob consisting of environment_number, account_number, and networks (name/cidr)
     try:
         if args.command == 'create-networks':
-	    create_networks(args.network_blob)
+	    create_networks(db_filename,args.network_blob)
 #            print json.dumps(args.networks)
 #            sys.exit(1)
     except Exception, e:
@@ -653,14 +697,14 @@ if __name__ == "__main__":
     # create-ports
     try:
 	if args.command == 'create-ports':
-	    create_ports(args.port_blob)
+	    create_ports(db_filename,args.port_blob)
     except Exception, e:
 	logging.exception("Error: Unable to create ports! %s" % e)
 
     # create-instance
     try:
         if args.command == 'create-instance':
-            create_instance(args.instance_blob)
+            create_instance(db_filename,args.instance_blob)
     except Exception, e:
         logging.exception("Error: Unable to create instance! %s" % e)    
 
@@ -668,7 +712,7 @@ if __name__ == "__main__":
     try:
 	if args.command == 'delete':
 	    if args.environment_number is not None:
-		delete_environment(args.environment_number)
+		delete_environment(db_filename,args.environment_number)
 	    elif args.device_number is not None:
 		delete_device(args.device_number)
 	    else:
@@ -696,7 +740,8 @@ if __name__ == "__main__":
     # The LIST parser
     try:
 	if args.command == 'list':
-	    list_devices(db_filename)
+	    data = list_devices(db_filename, None)
+	    print json.dumps(data)
 	    sys.exit(1)
     except Exception, e:
 	logging.exception("Oops! Unable to list! %s" % e)

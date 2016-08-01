@@ -25,19 +25,25 @@ def get_pw(username):
 def hello():
     return None
 
-@app.route("/list", methods=['GET'])
+@app.route("/environments", methods=['GET'])
+@app.route("/devices", methods=['GET'])
 @auth.login_required
 def list():
     if request.method == "GET":
         data,status_code = moonshine.list_devices(db_filename,None)
-#    return render_template("list.htm", devices=devices)
-        return jsonify(**data),status_code
+        if request.args.get('html'):
+            return render_template("list.htm", devices=data['data'])
+        else:
+	    return jsonify(**data),status_code
 
-@app.route("/list/<environment>", methods=['GET'])
+@app.route("/environment/<environment>", methods=['GET','DELETE'])
 @auth.login_required
-def list_env(environment):
+def env(environment):
     if request.method == "GET":
         data,status_code = moonshine.list_devices(db_filename,environment_number=environment)
+        return jsonify(**data),status_code
+    if request.method == "DELETE":
+	data,status_code = moonshine.delete_environment(db_filename,environment_number=environment)
         return jsonify(**data),status_code
 
 @app.route("/networks", methods=['POST'])
@@ -58,8 +64,19 @@ def c_ports():
 @auth.login_required
 def c_instance():
     if request.method == "POST":
-        instance = moonshine.create_instance(db_filename,json.dumps(request.json))
-        return jsonify(**instance)
+        data,status_code = moonshine.create_instance(db_filename,json.dumps(request.json))
+        return jsonify(**data), status_code
+
+@app.route("/device/<device>", methods=['GET'])
+@auth.login_required
+def c_device(device):
+    if request.method == "GET":
+        data,status_code = moonshine.list_devices(db_filename,device_number=device)
+	if request.args.get('html'):
+            return render_template("list.htm", devices=data['data'])
+	else:
+            return jsonify(**data),status_code
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port="80")
