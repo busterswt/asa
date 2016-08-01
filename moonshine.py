@@ -17,6 +17,7 @@ import library.config.ltm as ltm
 import library.config.netscaler as netscaler
 import library.config.srx as srx
 import library.config.csr as csr
+import library.config.adx as adx
 
 # Initialize global variables that will be used throughout
 # Best practice? Dunno.
@@ -54,26 +55,41 @@ def create_project(account_number):
     # Return the project that will be used when creating resources
     return os_project
 
-def create_networks(network_blob):
+def create_networks(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
 
-    details = PrettyTable(["account", "environment", "name", "cidr", "network_id", "subnet_id"])
+    network_blob = json.loads(payload)
+    # Initialize json response
+    response = {}
+    response['data'] = []
 
+    # Iterate through the networks to see if they exist
     for m_network in network_blob["networks"]:
 	# Finds the true CIDR (bit boundary) for given CIDR/IP/Address
 	real_cidr = str(netaddr.IPNetwork(m_network["cidr"]).cidr)
 
 	# Validates a network matching env and cidr doesn't already exist.
 	# (todo) How do we also validate the network name isn't used yet
-	data = dbmgr.query("select count(*) from networks where cidr=? and environment_number=?", 
+	result = dbmgr.query("select count(*) from networks where cidr=? and environment_number=?", 
 				(real_cidr,network_blob["environment_number"]))
 
-	count = data.fetchone()
-	if count[0] > 0:
-	    print "Network with CIDR %s already exists as part of environment %s! Not creating" % (real_cidr,network_blob["environment_number"])
+	count = result.fetchone()
+	if count[0] > 0: # If we encounter the network, do not create another one
+	    response['message'] = "Error"
+            response['error'] = "Network with CIDR %s already exists in environment %s. Not creating!" % (real_cidr,network_blob["environment_number"])
+	    return response
 
-	else:
-#            print "Network does not exist in database. Creating new network."
+	# Check to see if network name already exists
+	result = dbmgr.query("select count(*) from networks where network_name=? and environment_number=?",
+                                (m_network['network_name'],network_blob["environment_number"]))
+
+        count = result.fetchone()
+        if count[0] > 0: # If we encounter the network, do not create another one
+            response['message'] = "Error"
+            response['error'] = "Network with name %s already exists in environment %s. Not creating!" % (m_network['network_name'],network_blob["environment_number"])
+            return response
+
+	else: # Network does not exist in database. Create new network.
     	    try:
 		network_args = {}
 		# Use the network type set by user
@@ -85,15 +101,11 @@ def create_networks(network_blob):
 
 		# Creates the network in Neutron
                 q_network = neutronlib.create_network(network_name=m_network["network_name"],
-						**network_args) # need to set tenant id
-
-#                print "Created network %s in Neutron" % (q_network["network"]["id"])
+						**network_args) # need to set tenant id?
 
 		# Creates the subnet in Neutron
 		q_subnet = neutronlib.create_subnet(network_id=q_network["network"]["id"],
-							cidr=real_cidr) # Need to set tenant id
-
-#		print "Created subnet %s in Neutron" % (q_subnet["subnet"]["id"])
+							cidr=real_cidr) # Need to set tenant id?
 
 	        # Update sqlite database
 	        try:
@@ -104,21 +116,38 @@ def create_networks(network_blob):
 					m_network["network_name"],real_cidr,q_network["network"]["provider:segmentation_id"],
 					q_network["network"]["provider:network_type"],q_subnet["subnet"]["id"]]))
 
-		    details.add_row([network_blob["account_number"],network_blob["environment_number"],
-					m_network["network_name"],real_cidr,q_network["network"]["id"],q_subnet["subnet"]["id"]])
-	        except Exception, e:
-		    print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
+		except Exception, e:
+                    response['message'] = "Error"
+                    response['error'] = "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
+                    return response
+
+		network = {}
+		network['account_number'] = network_blob["account_number"]
+		network['environment_number'] = network_blob["environment_number"]
+		network['network_name'] = m_network["network_name"]
+		network['cidr'] = real_cidr
+		network['network_id'] = q_network["network"]["id"]
+		network['subnet_id'] = q_subnet["subnet"]["id"]
+		network['network_type'] = q_network["network"]["provider:network_type"]
+		network['segmentation_id'] = q_network["network"]["provider:segmentation_id"]
+		response['data'].append(network)    
+
 	    except Exception, e:
 	        # (todo) Rollback neutron net-create, too?
-	        print "Error! %s" % e	
+		response['message'] = "Error"
+                response['error'] = "%s" % e
+		return response
 
-    # Print the details of the networks created
-    print "Networks created:"
-    print details 
+    response['message'] = "Success"
+    return response
 	
-def create_ports(port_blob):
+def create_ports(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
-    details = PrettyTable(["account", "environment", "device", "name", "port_id", "network_id"])
+    port_blob = json.loads(payload)
+
+    # Initialize json response
+    response = {}
+    response['data'] = []
 
     for m_port in port_blob["ports"]:
 
@@ -128,11 +157,10 @@ def create_ports(port_blob):
 
         count = data.fetchone()
         if count[0] > 0:
-            print "Device '%s' already has a port on the '%s' network in environment %s! Not creating" % (port_blob["device_number"],m_port["network_name"],port_blob["environment_number"])
-
+	    response['message'] = "Error"
+            response['error'] = "Device '%s' already has a port on the '%s' network in environment %s! Not creating!" % (port_blob["device_number"],m_port["network_name"],port_blob["environment_number"])
+            return response
         else:
-#            print "Device '%s' in environment '%s' does not have a port in the '%s' network in the database. Creating new port." % \
-#			(port_blob["device_number"],port_blob["environment_number"],m_port["network_name"])            
 	    try:
 		# Let's see if using the generic outside or management network. If so, those aren't bound to environments
 		# (todo) Find a better way to do this
@@ -147,9 +175,11 @@ def create_ports(port_blob):
 		# Validate a network ID is returned
 	        network_id = data.fetchone() # How to return none if not found
 		if network_id is None:	
-	    	    print "Error! Network '%s' in environment '%s' does not exist in the database. Please create the network and try again." % \
-				(m_port["network_name"],port_blob["environment_number"])
-		    continue # Break out and process next port
+		    response['message'] = "Error"
+		    response['error'] = "Error! Network '%s' in environment '%s' does not exist in the database. Please create the network and try again." % \
+                                (m_port["network_name"],port_blob["environment_number"])
+#		    continue # Break out and process next port
+		    return response
 
                 port_args = {}
                 # Use the fixed ip set by user
@@ -175,19 +205,30 @@ def create_ports(port_blob):
                                         port_blob["account_number"],port_blob["environment_number"],
                                         m_port["network_name"],q_port["port"]["fixed_ips"][0]["ip_address"],
                                         port_blob["device_number"],m_port["network_name"]]))
-
-		    details.add_row([port_blob["account_number"],port_blob["environment_number"],port_blob["device_number"],
-                                        m_port["network_name"],q_port["port"]["id"],q_port["port"]["network_id"]])
-
                 except Exception, e:
-                    print "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
+                    response['message'] = "Error"
+                    response['error'] = "Unable to update local database. Moonshine and Neutron could be out of sync! %s" % e
+                    return response
+
+                port = {}
+                port['account_number'] = port_blob["account_number"]
+                port['environment_number'] = port_blob["environment_number"]
+		port['device_number'] = port_blob["device_number"]
+		port['port_id'] = q_port["port"]["id"]
+                port['port_name'] = m_port["network_name"]
+		port['network_id'] = q_port["port"]["network_id"]
+		port['tenant_id'] = q_port["port"]["tenant_id"]
+		port['network_name'] = m_port["network_name"]
+		port['fixed_ip'] = q_port["port"]["fixed_ips"][0]["ip_address"]
+                response['data'].append(port)
             except Exception, e:
                 # (todo) Rollback neutron port-create, too?
-                print "Error! %s" % e
+                response['message'] = "Error"
+                response['error'] = "%s" % e
+                return response
 
-    # Print the details of the ports created
-    print "Ports created:"
-    print details
+    response['message'] = "Success"
+    return response
 
 def create_instance(instance_blob):
     dbmgr = DatabaseManager(db_filename)
@@ -267,7 +308,7 @@ def create_instance(instance_blob):
             instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
                                         ports=ports,userdata=device_config,az=zone)
         elif 'vadx' in instance_blob['device_model']:
-            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,config_drive="True",
+            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
                                         ports=ports,userdata=device_config,az=zone)
 
 	# Update sqlite database
@@ -354,7 +395,7 @@ def generate_configuration(instance_blob):
     elif 'ltm' in instance_blob['device_model']:
 	device_config = ltm.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
     elif 'vadx' in instance_blob['device_model']:
-        device_config = ""
+        device_config = adx.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
 
     return device_config
 
@@ -445,309 +486,6 @@ def delete_device(device_number):
         logging.exception('Unable to delete port! Check sync. %s' % e)
 
 
-
-
-
-
-
-
-
-def launch_firewall(ha,fw,_ports,_fw_configuration,image_id,flavor_id):
-    global _metadata
-
-    # Initialize metadata
-    _metadata.update({"ha": str(ha)})
-    _metadata.update({"type": "firewall"})
-    _metadata.update({"device": keystonelib.generate_random_device()})
-    _metadata.update({"peer": ""})
-
-    # Boot the primary ASA
-    print "Launching primary firewall..."
-    _fw_configuration['priority'] = 'primary'
-
-    if 'asav' in fw:
-        primary_config = configlib.generate_asa_config(ha,_fw_configuration)
-	file_path = "day0"
-    elif 'vsrx' in fw:
-        primary_config = configlib.generate_srx_config(ha,_fw_configuration)
-	file_path = "juniper.conf"
-    else:
-        print "Unsupported firewall. Exiting!"
-        sys.exit(1)
-    
-    # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the ASA.
-    if ha:
-	ports = []
-	ports.append({'mgmt':_ports['fw_mgmt_primary_port_id']})
-	ports.append({'outside':_ports['fw_outside_primary_port_id']})
-	ports.append({'inside':_ports['fw_inside_primary_port_id']})
-	ports.append({'failover':_ports['fw_failover_primary_port_id']})
-    else:
-	ports = []
-        ports.append({'mgmt':_ports['fw_mgmt_primary_port_id']})
-        ports.append({'outside':_ports['fw_outside_primary_port_id']})
-        ports.append({'inside':_ports['fw_inside_primary_port_id']})
-
-    az = "ZONE-A"
-#    print _metadata # Debugging
-    primary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
-					ports=ports,file_contents=primary_config,az=az,file_path=file_path,
-					meta=_metadata,project_id=os_project.id)
-
-
-    # Check to see if VM state is ACTIVE.
-    print "Waiting for primary firewall %s to go ACTIVE..." % primary_fw.id
-    status = novalib.check_status(primary_fw.id)
-    duration = 0
-    while not status == "ACTIVE":
-	if status == "ERROR":
-	    print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
-	    sys.exit(1)
-	else:
-	    if duration >= 20:
-		print "Waiting..."
-		duration = 0;
-	    else:
-	        time.sleep(1)
-		duration += 1
-                status = novalib.check_status(primary_fw.id)
-
-    if ha:
-	# Boot the secondary ASA
-        print "Launching secondary firewall..."
-        _fw_configuration['priority'] = 'secondary'
-    
-        # Initialize metadata
-        _metadata.update({"ha": str(ha)})
-	_metadata.update({"type": "firewall"})
-        _metadata.update({"device": keystonelib.generate_random_device()})
-        _metadata.update({"peer": ""})
-
-        if 'asav' in fw:
-            secondary_config = configlib.generate_asa_config(ha,_fw_configuration)
-	    file_path = "day0"
-        elif 'vsrx' in fw:
-            secondary_config = configlib.generate_srx_config(ha,_fw_configuration)
-	    file_path = "juniper.conf"
-        else:
-            print "Unsupported firewall. Exiting!"
-            sys.exit(1)
-
-        ports = []
-        ports.append({'mgmt':_ports['fw_mgmt_secondary_port_id']})
-        ports.append({'outside':_ports['fw_outside_secondary_port_id']})
-        ports.append({'inside':_ports['fw_inside_secondary_port_id']})
-        ports.append({'failover':_ports['fw_failover_secondary_port_id']})
-
-	az = 'ZONE-B'
-	secondary_fw = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,config_drive='True',
-                                        ports=ports,file_contents=secondary_config,az=az,file_path=file_path,
-					meta=_metadata,project_id=os_project.id)
-
-        # Check to see if VM state is ACTIVE.
-        # (todo) Will want to put an ERROR check in here so we can move on
-        print "Waiting for secondary firewall %s to go ACTIVE..." % secondary_fw.id
-        status = novalib.check_status(secondary_fw.id)
-	duration = 0
-        while not status == "ACTIVE":
-            if status == "ERROR":
-                print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
-                sys.exit(1)
-            else:
-		if duration >= 20:
-                    print "Waiting..."
-                    duration = 0;
-                else:
-                    time.sleep(1)
-                    duration += 1
-                    status = novalib.check_status(secondary_fw.id)
-
-    print "Please wait a few minutes while your firewall(s) come online."
-
-    details = PrettyTable(["Parameter", "Value"])
-    details.align["Parameter"] = "l" # right align
-    details.align["Value"] = "l" # left align
-    details.add_row(["Hostname:",_fw_configuration['fw_hostname']])
-    details.add_row(["Primary IP:",_fw_configuration['fw_outside_primary_address']])
-    details.add_row(["Primary Management IP:",_fw_configuration['fw_mgmt_primary_address']])
-
-    # Only print secondary details if ha
-    if ha:
-        details.add_row(["Secondary IP:",_fw_configuration['fw_outside_secondary_address']])
-        details.add_row(["Secondary Management IP:",_fw_configuration['fw_mgmt_secondary_address']])
-
-    details.add_row(["Inside Network VLAN ID",_fw_configuration['fw_inside_segmentation_id']])
-    details.add_row(["",""])
-    details.add_row(["VPN Endpoint:",_fw_configuration['fw_outside_primary_address']])
-    details.add_row(["VPN Group Name:",_fw_configuration['tunnel_group']])
-    details.add_row(["VPN Group Password:",_fw_configuration['group_password']])
-    details.add_row(["VPN Username:",_fw_configuration['vpn_user']])
-    details.add_row(["VPN Password:",_fw_configuration['vpn_password']])
-    details.add_row(["",""])
-    details.add_row(["Primary Console:",novalib.get_console(primary_fw)])
-
-    if ha:
-	details.add_row(["Secondary Console:",novalib.get_console(secondary_fw)])
-    print details
-
-def launch_loadbalancer(ha,lb,_ports,_lb_configuration,image_id,flavor_id):
-    global _metadata
-
-    # Boot the primary load balancer
-    print "\nLaunching primary load balancer..."
-    _lb_configuration['priority'] = 'primary'
-    if lb == 'ltm':
-        primary_config = configlib.generate_f5_config(ha,_lb_configuration)
-    elif lb == 'netscaler':
-	primary_config = configlib.generate_netscaler_config(ha,_lb_configuration)
-    else:
-        print "Unsupported load balancer. Exiting!"
-	sys.exit(1)
-
-    # Initialize metadata
-    _metadata.update({"ha": str(ha)})
-    _metadata.update({"type": "load balancer"})
-    _metadata.update({"device": keystonelib.generate_random_device()})
-    _metadata.update({"peer": ""})
-
-    # If ha, build out a failover port. Otherwise don't. These need to be in a specific order for the LB.
-    if ha:
-        ports = []
-	ports.append({'mgmt':_ports['lb_mgmt_primary_port_id']})
-        ports.append({'outside':_ports['lb_outside_primary_port_id']})
-        ports.append({'inside':_ports['lb_inside_primary_port_id']})
-	ports.append({'failover':_ports['lb_failover_primary_port_id']})
-    else:
-	ports = []
-	ports.append({'mgmt':_ports['lb_mgmt_primary_port_id']})
-	ports.append({'outside':_ports['lb_outside_primary_port_id']})
-	ports.append({'inside':_ports['lb_inside_primary_port_id']})
-
-    az = 'ZONE-A'
-    primary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=primary_config,az=az,project_id=os_project.id,
-					meta=_metadata)
-
-    # Check to see if VM state is ACTIVE.
-    print "Waiting for primary load balancer %s to go ACTIVE..." % primary_lb.id
-    status = novalib.check_status(primary_lb.id)
-    duration = 0
-    while not status == "ACTIVE":
-        if status == "ERROR":
-            print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
-            sys.exit(1)
-        else:
-            duration += 1
-	    if (duration % 10 == 0):
-		printf('|')
-	    else:	 
-	        printf('.')
-	    time.sleep(1)		
-            status = novalib.check_status(primary_lb.id)
-
-    if ha:
-        # Boot the secondary LB
-        print "\nLaunching secondary load balancer..."
-        _lb_configuration['priority'] = 'secondary'
-        if lb == 'ltm':
-	    secondary_config = configlib.generate_f5_config(ha,_lb_configuration)
-        elif lb == 'netscaler':
-            secondary_config = configlib.generate_netscaler_config(ha,_lb_configuration)
-        else:
-            print "Unsupported load balancer. Exiting!"
-            sys.exit(1)
-
-        # Initialize metadata
-        _metadata.update({"ha": str(ha)})
-        _metadata.update({"type": "load balancer"})
-        _metadata.update({"device": keystonelib.generate_random_device()})
-        _metadata.update({"peer": ""})
-
-	ports = []
-        ports.append({'mgmt':_ports['lb_mgmt_secondary_port_id']})
-        ports.append({'outside':_ports['lb_outside_secondary_port_id']})
-        ports.append({'inside':_ports['lb_inside_secondary_port_id']})
-        ports.append({'failover':_ports['lb_failover_secondary_port_id']})
-
-        az = 'ZONE-B'
-        secondary_lb = novalib.boot_instance(name=_metadata['hostname'],image=image_id,flavor=flavor_id,
-                                        ports=ports,userdata=secondary_config,az=az,project_id=os_project.id,
-					meta=_metadata) 
-
-        # Check to see if VM state is ACTIVE.
-        # (todo) Will want to put an ERROR check in here so we can move on
-        print "Waiting for secondary load balancer %s to go ACTIVE..." % secondary_lb.id
-        status = novalib.check_status(secondary_lb.id)
-	duration = 0
-        while not status == "ACTIVE":
-            if status == "ERROR":
-                print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
-                sys.exit(1)
-            else:
-		duration += 1
-                if (duration % 10 == 0):
-                    printf('|')
-                else:
-                    printf('.')
-                time.sleep(1)
-                status = novalib.check_status(secondary_lb.id)
-
-    print " Done!\n Please wait a few minutes while your load balancer(s) come online."
-
-    details = PrettyTable(["Parameter", "Value"])
-    details.align["Parameter"] = "l" # right align
-    details.align["Value"] = "l" # left align
-    details.add_row(["Hostname:",_lb_configuration['lb_hostname']])
-    details.add_row(["Primary Management IP:",_lb_configuration['lb_mgmt_primary_address']])
-    
-    # Only print secondary details if ha
-    if ha:
-        details.add_row(["Secondary Management IP:",_lb_configuration['lb_mgmt_secondary_address']])        
-
-    details.add_row(["Inside Network VLAN ID",_lb_configuration['lb_inside_segmentation_id']])
-    details.add_row(["",""])
-    details.add_row(["Primary Console:",novalib.get_console(primary_lb)])
-    if ha:
-	details.add_row(["Secondary Console:",novalib.get_console(secondary_lb)])
-    print details
-
-def launch_instance(network_id,vm_image,vm_flavor):
-
-    # Boot the primary load balancer
-    print "\nLaunching a virtual machine for testing..."    
-
-    vm_hostname = _metadata['hostname'] + "-VM"
-    instance = novalib.boot_vm(vm_hostname,network_id,vm_image,vm_flavor,az="ZONE-A",project_name=os_project.name)
-
-    # Check to see if VM state is ACTIVE.
-    print "Waiting for the virtual machine %s to go ACTIVE..." % instance.id
-    status = novalib.check_status(instance.id)
-    duration = 0
-    while not status == "ACTIVE":
-        if status == "ERROR":
-            print "Instance is in ERROR state. No sense in moving on..." # (todo) build some graceful delete
-            sys.exit(1)
-        else:
-            duration += 1
-            if (duration % 10 == 0):
-                printf('|')
-            else:
-                printf('.')
-            time.sleep(1)
-            status = novalib.check_status(instance.id)
-
-    print " Done!\n Please wait a few minutes while your instance(s) come online."
-
-    details = PrettyTable(["Parameter", "Value"])
-    details.align["Parameter"] = "l" # right align
-    details.align["Value"] = "l" # left align
-    details.add_row(["Hostname:",vm_hostname])
-    details.add_row(["Network:",instance.networks])
-    details.add_row(["NAT Address:",""])
-    details.add_row(["Primary Console:",novalib.get_console(instance)])
-
-    print details
-
 def load_config():
     # Load local config file
     with open('config.json') as config_file:
@@ -755,105 +493,58 @@ def load_config():
 
     return config
 
-def create(args):
-    global _networks, _ports, _metadata, os_project
-
-    # Try opening the file that contains information about the networks, flavors, and images
-    # (todo) Accept these as (optional) command-line inputs
-    try:
-	config = load_config()
-    except Exception, e:
-	logging.exception("Unable to load configuration file! %s" % e)
-	sys.exit(1)
-
-    _networks['netdev_network'] = config['networks']['outside']
-    _networks['oob_network'] = config['networks']['mgmt']
-
-    fw_image = config['firewall'][args.fw]['image']
-    fw_flavor = config['firewall'][args.fw]['flavor']
-
-    if args.lb is not None:
-        lb_image = config['loadbalancer'][args.lb]['image']
-        lb_flavor = config['loadbalancer'][args.lb]['flavor']
-
-    if args.vm:
-        vm_image = config['vm']['image']
-        vm_flavor = config['vm']['flavor']
-
-    # Set arbitrary hostname
-    # (todo) The hostname will eventually be device number. Need to work out adding devices one at a time!
-    _metadata['hostname'] = novalib.random_server_name()
-
-    # Create a project for the devices to live in
-    os_project = create_project(args.account_number)
-    _metadata['project_name'] = os_project.name
-
-    # Assign admin role to the current user in the new project
-    # This will allow us to boot instances in that project
-    try:
-        user = keystonelib.get_user('admin') # hardcoded for now
-        # (todo) Maybe add this in to the create_project function
-        response = keystonelib.add_user_to_project(user.id,os_project.id)
-    except Exception, e:
-	logging.exception("Unable to add user to new project. Bailing! %s" % e)
-
-    # Set the environment number
-    _metadata['env'] = args.env
-
-    # Create networks
-    _networks = create_fw_networks(args.ha,args.lb)
-    if args.lb is not None:
-        _networks.update(create_lb_networks(args.ha))
-
-    # Create ports
-    _ports = create_fw_ports()
-    if args.lb is not None:
-        _ports.update(create_lb_ports())
-
-    # Launch devices
-    print "Launching devices... (This operation can take a while for large images.)"
-    _fw_configuration = build_fw_configuration(os_project.name,'username',args.ha)
-    launch_firewall(args.ha,args.fw,_ports,_fw_configuration,fw_image,fw_flavor)
-
-    if args.lb is not None: # If user is spinning up load balancers, launch 'em behind the FW
-        _lb_configuration = build_lb_configuration(args.ha)
-        launch_loadbalancer(args.ha,args.lb,_ports,_lb_configuration,lb_image,lb_flavor)
-        
-    # If --vm is specified, launch a VM in the backend INSIDE network that can be reachable from the web
-    # (todo) Cleanup the dict/array with the configuration and networks
-    if args.vm:
-        network_id = _networks['fw_inside_network_id']
-        if args.lb is not None:
-            network_id = _networks['lb_inside_network_id']
-        launch_instance(network_id,vm_image,vm_flavor)
-
-def list_devices(db_filename):
+def list_devices(db_filename,environment_number):
     # Returns a list of instances known to Moonshine
     dbmgr = DatabaseManager(db_filename)
-    details = PrettyTable(["instance_id", "environment_number", "account_number", "device_number", "device_name", "device_type", "management_ip"])
-    details.align["id"] = "l" # left
+    response = {}
+    response['data'] = []
 
-    # Return instances in the local DB
-    result = dbmgr.query("select * from instances")
+    try:
+        # Return instances in the local DB
+	if environment_number is not None:
+	    result = dbmgr.query("select * from instances where environment_number=?",([environment_number]))
+	else:        
+	    result = dbmgr.query("select * from instances")
+        servers = result.fetchall()
+	
+	# Return 404 if no results found
+    	if not servers:
+	    response['message'] = "No results found"
+	    status_code = "404"
+	    return response,status_code
 
-    servers = result.fetchall()
-    for server in servers:
-	id = server['instance_id']
-	env = server['environment_number']
-	account = server['account_number']
-	device = server['device_number']
-	name = server['device_name']
-	type = server['device_type']
-
-	# Find the management port in local DB
-	result = dbmgr.query("select port_id from ports where device_number=? and account_number=? and port_name='management'",
+        # Build a dict that we will convert to json for output later
+        for server in servers:
+	    device = {}
+            device['device_number'] = server['device_number']
+            device['environment_number'] = server['environment_number']
+            device['account_number'] = server['account_number']
+            device['device_name'] = server['device_name']
+            device['instance_id'] = server['instance_id']
+            device['device_type'] = server['device_type']
+	
+    	    # Find the management port in local DB
+ 	    result = dbmgr.query("select port_id from ports where device_number=? and account_number=? and port_name='management'",
                                 ([server['device_number'],server['account_number']]))
-	port_id = result.fetchone()[0]
-	management_ip = neutronlib.get_fixedip_from_port(port_id)
+	    port_id = result.fetchone()[0]
+	    management_ip = neutronlib.get_fixedip_from_port(port_id)
+ 	    device['management_ip'] = management_ip
 
-        details.add_row([id,env,account,device,name,type,management_ip])
+	    # Return compute node hosting instance
+	    device['hypervisor'] = novalib.get_hypervisor_from_id(server['instance_id'])	    
+	    response['data'].append(device)
 
-    print details
+    except Exception, e:
+	response['message'] = "Error"
+	response['error'] = "%s" % e
+	status_code = "400"
+        return response,status_code
+#        details.add_row([id,env,account,device,name,type,management_ip])
+#    print details
+    response['message'] = "Success"
+    status_code = "200"
+    return response,status_code
+
 
 def find_devices(**keys):
     servers = novalib.find_instances(**keys)

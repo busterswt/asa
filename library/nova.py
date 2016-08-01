@@ -158,6 +158,16 @@ def get_console(server):
     vnc = server.get_spice_console("spice-html5")
     return vnc['console']['url']
 
+def get_console_from_id(server_id):
+    server = nova.servers.get(server_id)
+    vnc = server.get_spice_console("spice-html5")
+    return vnc['console']['url']
+
+def get_hypervisor_from_id(server_id):
+    server = nova.servers.get(server_id)
+    hypervisor = getattr(server, 'OS-EXT-SRV-ATTR:host')
+    return hypervisor
+
 def list_instances():
     search_opts = {'all_tenants': 1}
     servers = nova.servers.list(search_opts=search_opts)
