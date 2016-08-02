@@ -41,7 +41,10 @@ def list():
 def env(environment):
     if request.method == "GET":
         data,status_code = moonshine.list_devices(db_filename,environment_number=environment)
-        return jsonify(**data),status_code
+	if request.args.get('html'):
+            return render_template("list.htm", devices=data['data'])
+        else:
+            return jsonify(**data),status_code
     if request.method == "DELETE":
 	data,status_code = moonshine.delete_environment(db_filename,environment_number=environment)
         return jsonify(**data),status_code
@@ -76,6 +79,17 @@ def c_device(device):
             return render_template("list.htm", devices=data['data'])
 	else:
             return jsonify(**data),status_code
+
+@app.route("/device/<device>/details", methods=['GET'])
+@auth.login_required
+def c_device_details(device):
+    if request.method == "GET":
+        data,status_code = moonshine.get_device_details(db_filename,device_number=device)
+        if request.args.get('html'):
+            return render_template("device.htm", devices=data['data'])
+        else:
+            return jsonify(**data),status_code
+
 
 
 if __name__ == "__main__":

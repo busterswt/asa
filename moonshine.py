@@ -281,7 +281,7 @@ def create_instance(db_filename,payload):
 	response['message'] = "error"
         response['error'] = "Unable to determine image or flavor id!"
         status_code = "400"
-        logging.exception("Unable to load configuration file! %s" % e)
+        logging.exception("Unable to load image id or flavor id from configuration file! %s" % e)
 	return response, status_code
 
     # Generate device configuration
@@ -427,6 +427,66 @@ def generate_configuration(db_filename,instance_blob):
 
     return device_config
 
+def get_device_details(db_filename,device_number=None):
+    # Returns the details of a device known to Moonshine
+    dbmgr = DatabaseManager(db_filename)
+    response = {}
+    response['data'] = []
+
+    try:
+        result = dbmgr.query("select * from instances where device_number=?",([device_number]))
+        servers = result.fetchall()
+
+        # Return 404 if no results found
+        if not servers:
+            response['message'] = "No device found"
+            status_code = "404"
+            return response,status_code
+            
+        # Build a dict that we will convert to json for output later
+        for server in servers:
+            device = {}
+            device['device_number'] = server['device_number']
+            device['environment_number'] = server['environment_number']
+            device['account_number'] = server['account_number']
+            device['device_name'] = server['device_name']
+            device['instance_id'] = server['instance_id']
+            device['device_type'] = server['device_type']
+
+            # Find the management port in local DB
+            result = dbmgr.query("select port_id from ports where device_number=? and account_number=? and port_name='management'",
+                                ([server['device_number'],server['account_number']]))
+            port_id = result.fetchone()[0]
+            management_ip = neutronlib.get_fixedip_from_port(port_id)
+            device['management_ip'] = management_ip
+
+            # Return compute node hosting instance
+            device['hypervisor'] = novalib.get_hypervisor_from_id(server['instance_id'])
+            
+            
+            # Return ports, including MAC and fixed IPs
+            result = dbmgr.query("select port_id,network_name from ports where device_number=? and account_number=?",
+                                ([server['device_number'],server['account_number']]))
+            ports = result.fetchall()                    
+            device['ports']= []
+            for q_port in ports:
+		port = {}
+                port['name'] = q_port['network_name']
+                port['mac_address'] = neutronlib.get_macaddr_from_port(q_port['port_id'])
+                port['ip_address'] = neutronlib.get_fixedip_from_port(q_port['port_id'])
+                device['ports'].append(port)
+            
+            response['data'].append(device)
+
+    except Exception, e:
+        response['message'] = "Error"
+        response['error'] = "%s" % e
+        status_code = "400"
+        return response,status_code
+
+    response['message'] = "Success"
+    status_code = "200"
+    return response,status_code
 
 def delete_environment(db_filename,environment_number):
     dbmgr = DatabaseManager(db_filename)
@@ -589,6 +649,8 @@ def list_devices(db_filename,environment_number=None,device_number=None):
     status_code = "200"
     return response,status_code
 
+def pull_torq_config(device_number):
+    return None
 
 def find_devices(**keys):
     servers = novalib.find_instances(**keys)
@@ -719,10 +781,6 @@ if __name__ == "__main__":
 		print 'Nothing to delete!'
     except Exception, e:
 	logging.exception("Error deleting: %s" % e)
-
-
-
-
 
 
 

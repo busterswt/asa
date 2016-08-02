@@ -49,15 +49,6 @@ def find_instances(**kwargs):
     # Search for device number
     if kwargs.get('device') is not None:
         search_opts['metadata'].update({"device": kwargs.get('device')})
-    # Search for HA devices (true/false?)
-    if kwargs.get('ha') is not None:
-        search_opts['metadata'] = '{"ha": "%s"}' % kwargs.get('ha')
-    # Search for peer ID
-    if kwargs.get('peer') is not None:
-        search_opts['metadata'] = '{"peer": "%s"}' % kwargs.get('peer')
-    # Search for type
-    if kwargs.get('type') is not None:
-	search_opts['metadata']['type'] = kwargs.get('type')
 
     # (note) The metadata value must be enclosed 
     # in quotes or it won't search
@@ -177,3 +168,6 @@ def list_instances():
 def delete_instance(instance_id):
     return nova.servers.delete(instance_id)
 
+def get_interface_list(instance_id):
+    server = nova.servers.get(instance_id)
+    return nova.servers.interface_list(server)
