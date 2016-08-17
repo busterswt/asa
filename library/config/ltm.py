@@ -20,7 +20,7 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     interface['internal_mtu'] = neutronlib.get_mtu_from_port(self_ports[2])
 
     # Determine HA info
-    if 'primary' or 'secondary' in instance_blob['device_priority']:
+    if ('primary' or 'secondary') in instance_blob['device_priority']:
         interface['self_failover_addr'] = neutronlib.get_fixedip_from_port(self_ports[3])
         interface['self_failover_netmask'] = neutronlib.get_netmask_from_subnet(neutronlib.get_subnet_from_port(self_ports[3]))
         interface['self_failover_mtu'] = neutronlib.get_mtu_from_port(self_ports[3])
@@ -42,6 +42,7 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     config['bigip']['system_cmds'].append('touch /tmp/openstack-moonshine')
     config['bigip']['system_cmds'].append('uname -r >> /tmp/openstack-moonshine')
     config['bigip']['system_cmds'].append('tmsh modify /sys sshd banner enabled banner-text "System auto-configured by Moonshine. Unauthorized access is prohibited!"')
+    config['bigip']['system_cmds'].append('tmsh modify /sys global-settings { gui-security-banner enabled gui-security-banner-text \'"System auto-configured by Moonshine. Unauthorized access is prohibited!"\' }')
     # Additional commands must be appended like those above
 
     # Configure network settings
@@ -66,7 +67,7 @@ def generate_configuration(db_filename,instance_blob,self_ports,peer_ports):
     config['bigip']['network']['routes'].append({'destination':'0.0.0.0/0','gateway':neutronlib.get_gateway_from_port(self_ports[1])})
     # Additional routes must be appended like those above!
 
-    if 'primary' or 'secondary' in instance_blob['device_priority']:
+    if ('primary' or 'secondary') in instance_blob['device_priority']:
 	config['bigip']['network']['interfaces']['1.3'] = {}
 	config['bigip']['network']['interfaces']['1.3']['dhcp'] = 'false'
 	config['bigip']['network']['interfaces']['1.3']['vlan_name'] = 'FAILOVER'

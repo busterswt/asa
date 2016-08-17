@@ -11,7 +11,7 @@ p { color: #f8f8f8; font-family: 'Raleway',sans-serif; font-size: 18px; font-wei
 a.white { color: #c8c8c8; text-decoration: underline; }
 a { color: #1c1c1c; text-decoration: underline; }
 
-a:hover { color: #1c1111; text-decoration: underline; }
+a:hover { color: #1c1c1c; text-decoration: underline; }
 
 body {
   font-family: "Helvetica Neue", Helvetica, Arial;
@@ -81,7 +81,8 @@ body {
 </head>
 
 <body translate="no" >
-<h2>Moonshine: List of Devices</h2>
+
+<h2>Moonshine: Device Details</h2>
 <div class="wrapper">
 <script>
     document.write('<a class="white" href="' + document.referrer + '">Go Back</a>');
@@ -105,14 +106,14 @@ body {
         Management IP
       </div>
       <div class="cell">
-        Device Console
+        Hypervisor
       </div>
     </div>
 
 {% for device in devices %}
     <div class="row">
       <div class="cell">
-        <a href="http://204.232.157.111/device/{{device.device_number}}/details?html=true">{{device.device_number}}</a>
+        <a href="http://204.232.157.111/device/{{device.device_number}}?html=true">{{device.device_number}}</a>
       </div>
       <div class="cell">
         <a href="http://204.232.157.111/account/{{device.account_number}}?html=true">{{device.account_number}}</a>
@@ -127,13 +128,44 @@ body {
 	<a href="ssh://{{device.management_ip}}/">{{device.management_ip}}</a>
       </div>
       <div class="cell">
-        &nbsp;
+        {{device.hypervisor}}
       </div>
     </div>
-{% endfor %}
-
   </div>
 </div>
+
+<div class="wrapper">
+
+  <div class="table">
+
+    <div class="row header blue">
+      <div class="cell">
+        Network Name
+      </div>
+      <div class="cell">
+        MAC Address
+      </div>
+      <div class="cell">
+        IP Address
+      </div>
+    </div>
+
+    {% for port in device.ports %}
+    <div class="row">
+      <div class="cell">
+        {{port.name}}
+      </div>
+      <div class="cell">
+	{{port.mac_address}}
+      </div>
+      <div class="cell">
+        {{port.ip_address}}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
 
 </body>
 </html>

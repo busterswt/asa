@@ -18,6 +18,7 @@ import library.config.netscaler as netscaler
 import library.config.srx as srx
 import library.config.csr as csr
 import library.config.adx as adx
+import library.config.netscaler as netscaler
 
 # Initialize global variables that will be used throughout
 # Best practice? Dunno.
@@ -58,7 +59,10 @@ def create_project(account_number):
 def create_networks(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
 
-    network_blob = json.loads(payload)
+    try:
+        network_blob = json.loads(payload)
+    except TypeError:
+        network_blob = payload
     # Initialize json response
     response = {}
     response['data'] = []
@@ -143,7 +147,11 @@ def create_networks(db_filename,payload):
 	
 def create_ports(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
-    port_blob = json.loads(payload)
+
+    try:
+        port_blob = json.loads(payload)
+    except TypeError:
+        port_blob = payload
 
     # Initialize json response
     response = {}
@@ -229,7 +237,11 @@ def create_ports(db_filename,payload):
 
 def create_instance(db_filename,payload):
     dbmgr = DatabaseManager(db_filename)
-    instance_blob = json.loads(payload)
+
+    try:
+        instance_blob = json.loads(payload)
+    except TypeError:
+        instance_blob = payload
 
     # Initialize json response
     response = {}
@@ -286,6 +298,8 @@ def create_instance(db_filename,payload):
 
     # Generate device configuration
     device_config = generate_configuration(db_filename,instance_blob)
+#    print device_config # Debug
+#    sys.exit(1)
 
     # Determine availability zone
     if 'secondary' in instance_blob["device_priority"]:
@@ -312,7 +326,8 @@ def create_instance(db_filename,payload):
         elif 'srx' in instance_blob['device_model']:
             print 'srx'
         elif 'netscaler' in instance_blob['device_model']:
-            print 'citrix'
+            instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
+                                        ports=ports,userdata=device_config,az=zone)
         elif 'ltm' in instance_blob['device_model']:
             instance = novalib.boot_instance(name=hostname,image=image_id,flavor=flavor_id,
                                         ports=ports,userdata=device_config,az=zone)
@@ -419,7 +434,7 @@ def generate_configuration(db_filename,instance_blob):
     elif 'srx' in instance_blob['device_model']:
 	device_config = ""
     elif 'netscaler' in instance_blob['device_model']:
-	device_config = ""
+	device_config = netscaler.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
     elif 'ltm' in instance_blob['device_model']:
 	device_config = ltm.generate_configuration(db_filename,instance_blob,self_ports,peer_ports)
     elif 'vadx' in instance_blob['device_model']:
@@ -751,8 +766,6 @@ if __name__ == "__main__":
     try:
         if args.command == 'create-networks':
 	    create_networks(db_filename,args.network_blob)
-#            print json.dumps(args.networks)
-#            sys.exit(1)
     except Exception, e:
         logging.exception("Error: Unable to create networks! %s" % e)
 

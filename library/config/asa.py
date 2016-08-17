@@ -108,6 +108,10 @@ def generate_default_route(db_filename,device_number):
 
     return textwrap.dedent(route)
 
+def generate_inside_routes(db_filename,self_ports,device_number):
+    # Generates inside routes
+    return None
+
 def generate_inside_object_groups(db_filename,self_ports):
     # Generates object groups for inside networks
     # (todo) Fix this so it only looks at inside networks
@@ -170,6 +174,14 @@ def generate_interface_config(db_filename,data,self_ports,peer_ports):
             interface['netmask'] = neutronlib.get_netmask_from_subnet(subnet_id)
             interface['sec_addr'] = neutronlib.get_fixedip_from_port(self_ports[index])
 
+	# Simple ACL/NAT logic per interface
+	if 'outside' in interface['port_name']:
+	    interface['action'] = 'deny'
+	    interface['nat'] = ''
+	else:
+	    interface['action'] = 'permit'
+	    interface['nat'] = 'nat (%s,outside) after-auto source dynamic any interface' % interface['port_name']
+
 	# Only generate full interface for non-failover port
 	if not 'failover' in interface['port_name']:
             interface_config += """
@@ -185,8 +197,10 @@ def generate_interface_config(db_filename,data,self_ports,peer_ports):
                 sysopt noproxyarp {port_name}
                 ip verify reverse-path interface {port_name}
 
-                access-list {port_name}_in permit ip any any
+                access-list {port_name}_in {action} ip any any
                 access-group {port_name}_in in interface {port_name}
+
+		{nat}
 
 		mtu {port_name} {mtu}
 		sysopt connection tcpmss {mss}
